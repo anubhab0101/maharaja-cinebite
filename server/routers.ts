@@ -27,7 +27,7 @@ import {
 import { ORDER_STATUSES, STAFF_ROLES } from "@shared/cinebites";
 import { getShowtimeWindow, listShowtimeDates, listShowtimes } from "./showtimes";
 import { generateSessionLinks, listSessionLinks, resolveSessionLink } from "./session-links";
-import { getPaymentProvider } from "./payment-provider";
+import { getPaymentProvider, isLivePaymentGatewayConfigured } from "./payment-provider";
 import { sanitizeText, checkRateLimit } from "./_core/security";
 
 export const appRouter = router({
@@ -91,6 +91,15 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Fail before persisting a pending order. Production must never fall
+        // back to the mock gateway when Razorpay credentials are absent.
+        if (process.env.NODE_ENV === "production" && !isLivePaymentGatewayConfigured()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Online payments are temporarily unavailable.",
+          });
+        }
+
         // Enforce anti-spam rate limiting on order creation (max 10 orders per 5 min per IP)
         const forwarded = ctx.req.headers["x-forwarded-for"];
         const clientIp = (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : ctx.req.socket.remoteAddress) || "unknown";
@@ -133,7 +142,7 @@ export const appRouter = router({
           receipt: order.orderNumber,
         });
 
-        const isLiveGateway = Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+        const isLiveGateway = isLivePaymentGatewayConfigured();
 
         return {
           order: {
