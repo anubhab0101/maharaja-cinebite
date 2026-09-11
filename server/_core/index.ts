@@ -3,6 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import path from "path";
+import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -38,7 +39,14 @@ async function startServer() {
   app.use(securityHeaders);
 
   // Safe request body limits (protects against Memory Exhaustion / DoS)
-  app.use(express.json({ limit: "1mb" }));
+  app.use(
+    express.json({
+      limit: "1mb",
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    })
+  );
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
   // API rate limiters (protects against Brute Force & abuse)
@@ -52,6 +60,37 @@ async function startServer() {
   registerOAuthRoutes(app);
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "cinebites", realtime: "ready", timestamp: new Date().toISOString() }));
+
+  // Razorpay Webhook Listener
+  app.post("/api/payment/webhook", async (req, res) => {
+    try {
+      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      const signature = req.headers["x-razorpay-signature"] as string | undefined;
+
+      if (webhookSecret && signature) {
+        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+        const expectedSignature = crypto
+          .createHmac("sha256", webhookSecret)
+          .update(rawBody)
+          .digest("hex");
+
+        if (expectedSignature !== signature) {
+          console.warn("[Razorpay Webhook] Signature mismatch received");
+          res.status(400).json({ error: "Invalid webhook signature" });
+          return;
+        }
+      }
+
+      const event = req.body?.event;
+      console.log(`[Razorpay Webhook] Event received: ${event}`);
+
+      // Always return 200 OK so Razorpay registers successful delivery
+      res.status(200).json({ status: "ok" });
+    } catch (err) {
+      console.error("[Razorpay Webhook] Error handling webhook:", err);
+      res.status(200).json({ status: "ok" });
+    }
+  });
 
   // Scoped SSE event stream: Prevents unauthorized eavesdropping on all cinema orders
   app.get("/api/events", async (req, res) => {
@@ -119,7 +158,49 @@ async function startServer() {
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
   if (port !== preferredPort) console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  server.listen(port, () => console.log(`Server running on http://localhost:${port}/`));
+  server.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}/`);
+    startKeepAlive();
+  });
+}
+
+function startKeepAlive() {
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    Boolean(process.env.RENDER) ||
+    Boolean(process.env.RENDER_EXTERNAL_URL);
+
+  if (!isProd) {
+    return;
+  }
+
+  const rawUrl =
+    process.env.PUBLIC_APP_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    "https://cinebite.dpdns.org";
+
+  const target = `${rawUrl.replace(/\/$/, "")}/health`;
+  console.log(`[Keep-Alive] Self-ping active. Target: ${target} (every 10m)`);
+
+  // Initial ping 30s after startup
+  setTimeout(async () => {
+    try {
+      const res = await fetch(target);
+      if (res.ok) console.log(`[Keep-Alive] Initial self-ping completed.`);
+    } catch {}
+  }, 30 * 1000);
+
+  // Periodic ping every 10 minutes (Render sleeps after 15m idle)
+  setInterval(async () => {
+    try {
+      const res = await fetch(target);
+      if (res.ok) {
+        console.log(`[Keep-Alive] Self-ping successful at ${new Date().toLocaleTimeString()}`);
+      }
+    } catch (err: any) {
+      console.warn(`[Keep-Alive] Self-ping warning: ${err.message}`);
+    }
+  }, 10 * 60 * 1000);
 }
 
 startServer().catch(console.error);
