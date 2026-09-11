@@ -171,5 +171,17 @@ export function getPaymentProvider(): PaymentProvider {
   if (keyId && keySecret) {
     return new RazorpayLiveProvider(keyId, keySecret);
   }
+
+  // A mock gateway must never be available on an internet-facing production
+  // deployment: accepting its synthetic payment IDs would turn a missing
+  // configuration into an order-confirmation bypass.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Razorpay production credentials are required in production");
+  }
+
   return new RazorpayTestProvider();
+}
+
+export function isLivePaymentGatewayConfigured(): boolean {
+  return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 }
