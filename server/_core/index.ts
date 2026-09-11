@@ -2,13 +2,14 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { subscribe } from "../cinebites-store";
+import { findOrderByNumberAndPhone, subscribe } from "../cinebites-store";
 import { securityHeaders, createRateLimiter } from "./security";
 import { sdk } from "./sdk";
 import { hasStaffRole } from "@shared/cinebites";
@@ -62,12 +63,18 @@ async function startServer() {
     }
 
     const isStaff = authenticatedUser && hasStaffRole(authenticatedUser.role, ["OWNER_ADMIN", "ADMIN", "MANAGER", "KITCHEN", "CASHIER"]);
-    const trackedOrderId = typeof req.query.orderId === "string" ? req.query.orderId : null;
     const trackedOrderNumber = typeof req.query.orderNumber === "string" ? req.query.orderNumber : null;
+    const phoneLast4 = typeof req.query.phoneLast4 === "string" && /^\d{4}$/.test(req.query.phoneLast4)
+      ? req.query.phoneLast4
+      : null;
 
-    // Reject unauthenticated requests that attempt to listen without scoping to their own order
-    if (!isStaff && !trackedOrderId && !trackedOrderNumber) {
-      res.status(401).json({ error: "Unauthorized. Staff login or valid order tracking parameter required." });
+    // A public stream needs both customer factors and must be validated before
+    // subscribing. An order number alone is not an authorization token.
+    const trackedOrder = !isStaff && trackedOrderNumber && phoneLast4
+      ? findOrderByNumberAndPhone(trackedOrderNumber, phoneLast4)
+      : null;
+    if (!isStaff && !trackedOrder) {
+      res.status(401).json({ error: "Unauthorized. Staff login or valid order tracking details required." });
       return;
     }
 
@@ -81,10 +88,7 @@ async function startServer() {
       // If staff, stream all events. If customer, stream only events matching their order.
       if (isStaff) {
         res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-      } else if (
-        (trackedOrderId && event.order.id === trackedOrderId) ||
-        (trackedOrderNumber && event.order.orderNumber === trackedOrderNumber)
-      ) {
+      } else if (event.order.id === trackedOrder!.id) {
         // Redact phone number and instructions from public SSE payload
         const safeOrder = {
           id: event.order.id,
@@ -101,8 +105,16 @@ async function startServer() {
   });
 
   app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
-  if (process.env.NODE_ENV === "development") await setupVite(app, server);
-  else serveStatic(app);
+
+  const isBundled =
+    import.meta.dirname.endsWith("dist") ||
+    import.meta.dirname.includes(path.sep + "dist");
+
+  if (process.env.NODE_ENV === "production" || isBundled) {
+    serveStatic(app);
+  } else {
+    await setupVite(app, server);
+  }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
