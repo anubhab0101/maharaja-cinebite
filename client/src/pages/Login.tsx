@@ -1,16 +1,12 @@
-import { useState, useMemo } from "react";
-import { ArrowLeft, Check, ChefHat, Copy, ExternalLink, LayoutDashboard, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowLeft, ChefHat, LayoutDashboard, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
-import { toast } from "sonner";
 
 export default function Login() {
   const params = new URLSearchParams(window.location.search);
   const redirectTarget = params.get("redirect") || "/admin";
   const errorParam = params.get("error");
   const rejectedEmail = params.get("email");
-  const [copied, setCopied] = useState(false);
-
-  const callbackUri = `${window.location.origin}/api/auth/google/callback`;
 
   const errorMessage = useMemo(() => {
     if (!errorParam) return null;
@@ -28,13 +24,6 @@ export default function Login() {
 
   function handleGoogleLogin() {
     window.location.href = `/api/auth/google?redirect=${encodeURIComponent(redirectTarget)}`;
-  }
-
-  function handleCopyUri() {
-    navigator.clipboard.writeText(callbackUri);
-    setCopied(true);
-    toast.success("Callback URI copied to clipboard!");
-    setTimeout(() => setCopied(false), 2500);
   }
 
   return (
@@ -110,7 +99,7 @@ export default function Login() {
                   href={`/api/auth/dev-login?role=OWNER_ADMIN&redirect=${encodeURIComponent(redirectTarget)}`}
                   className="block w-full text-center rounded-xl bg-amber-400 hover:bg-amber-300 text-black py-2.5 font-semibold text-xs transition shadow"
                 >
-                  ⚡ Enter as Owner Admin (anubhabmohapatra.01@gmail.com)
+                  ⚡ Enter as Owner Admin (******)
                 </a>
                 <a
                   href={`/api/auth/dev-login?role=KITCHEN&redirect=/kitchen`}
@@ -118,35 +107,6 @@ export default function Login() {
                 >
                   👨‍🍳 Enter as Kitchen Display
                 </a>
-              </div>
-            </div>
-
-            {/* Google Cloud Console Setup Helper */}
-            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-[11px] text-white/60 space-y-2">
-              <p className="font-medium text-white/80 flex items-center justify-between">
-                <span>Google OAuth 400 Mismatch Fix:</span>
-                <a
-                  href="https://console.cloud.google.com/apis/credentials"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-orange-400 hover:underline flex items-center gap-1"
-                >
-                  Google Console <ExternalLink size={10} />
-                </a>
-              </p>
-              <p className="text-white/50 text-[10px]">
-                Google Cloud me Client ID ke <strong>Authorized redirect URIs</strong> me yeh exact link paste karein:
-              </p>
-              <div className="flex items-center justify-between bg-black/40 rounded-lg p-2 border border-white/5 font-mono text-[10px] text-amber-300 select-all">
-                <span className="truncate pr-2">{callbackUri}</span>
-                <button
-                  onClick={handleCopyUri}
-                  className="shrink-0 flex items-center gap-1 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded px-2 py-0.5"
-                  title="Copy URI"
-                >
-                  {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                  <span>{copied ? "Copied" : "Copy"}</span>
-                </button>
               </div>
             </div>
 
