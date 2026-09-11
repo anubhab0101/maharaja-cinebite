@@ -25,12 +25,13 @@ export async function setupVite(app: Express, server: Server) {
     const url = req.originalUrl;
 
     try {
-      const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "../..",
-        "client",
-        "index.html"
-      );
+      const candidates = [
+        path.resolve(process.cwd(), "client", "index.html"),
+        path.resolve(import.meta.dirname, "../..", "client", "index.html"),
+        path.resolve(import.meta.dirname, "..", "client", "index.html"),
+      ];
+      const clientTemplate =
+        candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
 
       // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
@@ -48,14 +49,24 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
+  const distCandidates = [
+    path.resolve(import.meta.dirname, "public"),
+    path.resolve(process.cwd(), "dist", "public"),
+    path.resolve(import.meta.dirname, "../..", "dist", "public"),
+    path.resolve(process.cwd(), "public"),
+  ];
+
   const distPath =
-    process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "../..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
+    distCandidates.find((candidate) =>
+      fs.existsSync(path.resolve(candidate, "index.html"))
+    ) || distCandidates[0];
+
   if (!fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
+  } else {
+    console.log(`[Production] Serving static client bundle from: ${distPath}`);
   }
 
   app.use(express.static(distPath));
