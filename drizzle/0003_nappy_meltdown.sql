@@ -1,0 +1,1 @@
+ALTER TABLE `showtimes` ADD `durationMinutes` int DEFAULT 0 NOT NULL;

@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1788801353423,
+      "tag": "0000_perpetual_eternals",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1788802562213,
+      "tag": "0001_past_scarlet_spider",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1788873369614,
+      "tag": "0002_vengeful_hobgoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1788876045509,
+      "tag": "0003_nappy_meltdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1788877450883,
+      "tag": "0004_marvelous_kitty_pryde",
+      "breakpoints": true
+    }
+  ]
+}
