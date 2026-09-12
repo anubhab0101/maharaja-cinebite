@@ -1,26 +1,15 @@
-import { useMemo } from "react";
+
 import { ArrowLeft, ChefHat, LayoutDashboard, ShieldAlert, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "wouter";
+
 
 export default function Login() {
   const params = new URLSearchParams(window.location.search);
   const redirectTarget = params.get("redirect") || "/admin";
   const errorParam = params.get("error");
-  const rejectedEmail = params.get("email");
-
-  const errorMessage = useMemo(() => {
-    if (!errorParam) return null;
-    if (errorParam === "unauthorized_account") {
-      return `Access Denied: "${rejectedEmail || "Your Google account"}" is not authorized as cinema staff. Only approved theatre accounts can access staff consoles.`;
-    }
-    if (errorParam === "csrf_validation_failed") {
-      return "Security validation failed (CSRF mismatch). Please try logging in again.";
-    }
-    if (errorParam === "token_exchange_failed" || errorParam === "userinfo_fetch_failed") {
-      return "Google sign-in could not be completed. Please check your internet connection or credentials.";
-    }
-    return `Login failed: ${errorParam}`;
-  }, [errorParam, rejectedEmail]);
+  const errorMessage = errorParam
+    ? "Sign-in could not be completed. Please try again with an approved cinema account, or contact your manager."
+    : null;
 
   function handleGoogleLogin() {
     window.location.href = `/api/auth/google?redirect=${encodeURIComponent(redirectTarget)}`;
@@ -85,30 +74,6 @@ export default function Login() {
               </svg>
               Sign in with Google
             </button>
-
-            {/* Quick 1-Click Dev Sign-In */}
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 space-y-2">
-              <p className="font-semibold text-amber-300 flex items-center gap-1.5">
-                <Sparkles size={14} /> 1-Click Instant Sign-In (Localhost):
-              </p>
-              <p className="text-white/70 text-[11px]">
-                Direct test as verified Admin or Kitchen without waiting for Google Cloud Console setup:
-              </p>
-              <div className="grid grid-cols-1 gap-2 pt-1">
-                <a
-                  href={`/api/auth/dev-login?role=OWNER_ADMIN&redirect=${encodeURIComponent(redirectTarget)}`}
-                  className="block w-full text-center rounded-xl bg-amber-400 hover:bg-amber-300 text-black py-2.5 font-semibold text-xs transition shadow"
-                >
-                  ⚡ Enter as Owner Admin (******)
-                </a>
-                <a
-                  href={`/api/auth/dev-login?role=KITCHEN&redirect=/kitchen`}
-                  className="block w-full text-center rounded-xl border border-white/20 bg-white/5 hover:bg-white/10 text-white/80 py-2 text-[11px] font-medium transition"
-                >
-                  👨‍🍳 Enter as Kitchen Display
-                </a>
-              </div>
-            </div>
 
             <div className="relative my-4 text-center">
               <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/10" />

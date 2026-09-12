@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { and, asc, eq } from "drizzle-orm";
 import { sessionLinks, showtimes } from "../drizzle/schema";
 import { getDb } from "./db";
+import { isFreshImportedShow } from "./showtime-import-validation";
 
 function toPublicLink(token: string, baseUrl = process.env.PUBLIC_APP_URL || "http://localhost:3000") {
   return `${baseUrl.replace(/\/$/, "")}/?session=${encodeURIComponent(token)}`;
@@ -35,6 +36,6 @@ export async function resolveSessionLink(token: string) {
   const db = await getDb();
   if (!db) return null;
   const row = (await db.select({ session: sessionLinks, show: showtimes }).from(sessionLinks).innerJoin(showtimes, eq(sessionLinks.showtimeId, showtimes.id)).where(and(eq(sessionLinks.token, token), eq(sessionLinks.active, 1))).limit(1))[0];
-  if (!row || (row.session.expiresAt && row.session.expiresAt.getTime() < Date.now())) return null;
+  if (!row || !isFreshImportedShow(row.show) || (row.session.expiresAt && row.session.expiresAt.getTime() < Date.now())) return null;
   return { ...row.session, show: row.show, url: toPublicLink(row.session.token) };
 }

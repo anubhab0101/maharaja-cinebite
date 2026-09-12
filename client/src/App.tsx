@@ -1,12 +1,14 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import Admin from "@/pages/Admin";
-import History from "@/pages/History";
-import Kitchen from "@/pages/Kitchen";
-import Showtimes from "@/pages/Showtimes";
-import Login from "@/pages/Login";
-import SeatQrGenerator from "@/pages/SeatQrGenerator";
+import { lazy, Suspense } from "react";
+const Admin = lazy(() => import("@/pages/Admin"));
+const History = lazy(() => import("@/pages/History"));
+const Kitchen = lazy(() => import("@/pages/Kitchen"));
+const Showtimes = lazy(() => import("@/pages/Showtimes"));
+const Login = lazy(() => import("@/pages/Login"));
+const ServiceInfo = lazy(() => import("@/pages/ServiceInfo"));
+const SeatQrGenerator = lazy(() => import("@/pages/SeatQrGenerator"));
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -23,6 +25,7 @@ function Router() {
       <Route path="/admin" component={Admin} />
       <Route path="/qr-generator" component={SeatQrGenerator} />
       <Route path="/showtimes" component={Showtimes} />
+      {["/privacy", "/retention", "/terms", "/refunds", "/delivery", "/cookies", "/support", "/payment-failed"].map(path => <Route key={path} path={path} component={ServiceInfo} />)}
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -35,7 +38,12 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <Suspense fallback={<p role="status">Loading page…</p>}><Router /></Suspense>
+          <footer className="bg-[#101010] px-5 py-6 text-sm text-white/70">
+            <nav aria-label="Policies and support" className="flex flex-wrap justify-center gap-4">
+              {[["Privacy", "/privacy"], ["Terms", "/terms"], ["Refunds & cancellation", "/refunds"], ["Delivery", "/delivery"], ["Browser storage", "/cookies"], ["Support", "/support"]].map(([label, href]) => <a className="underline" key={href} href={href}>{label}</a>)}
+            </nav>
+          </footer>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

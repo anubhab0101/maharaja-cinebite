@@ -1,4 +1,7 @@
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes, createHash } from "crypto";
+import { TRPCError } from "@trpc/server";
+import { getPaymentProvider } from "./payment-provider";
+import { database, readOrders, readOrder, readEntities, writeEntity, persistOrder, persistStatus } from "./durable-store";
 import {
   DashboardStats,
   KitchenOrder,
@@ -9,20 +12,17 @@ import {
   ShiftSummary,
   StaffMember,
   StaffRole,
+  STAFF_ROLES,
   isValidTransition,
-  normalizeStaffRole,
 } from "@shared/cinebites";
 import { getDb } from "./db";
 import {
   orders as ordersTable,
   payments as paymentsTable,
   auditLogs as auditLogsTable,
-  orderItems,
-  refunds,
-  consentRecords,
   users as usersTable,
 } from "../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export const DEFAULT_MENU_ITEMS: MenuItem[] = [
   // --- COMBOS (7 items) ---
@@ -59,20 +59,21 @@ export const DEFAULT_MENU_ITEMS: MenuItem[] = [
   { id: "blue-curacao-mocktail", name: "Blue Curacao Mocktail", description: "Citrus tropical mocktail with soda", pricePaise: 6000, category: "Beverages", available: true, options: [] },
 ];
 
-const menu: MenuItem[] = DEFAULT_MENU_ITEMS.map((item) => ({ ...item }));
+const menu: MenuItem[] = [];
 let orders: KitchenOrder[] = [];
 const listeners = new Set<(event: { type: string; order: KitchenOrder }) => void>();
 const auditLog: { id: string; action: string; detail: string; actor: string; createdAt: string }[] = [];
 const lastTransitions = new Map<string, { from: OrderStatus; to: OrderStatus }>();
 const staff: StaffMember[] = [];
 
-export function listMenu() {
-  return (menu.length > 0 ? menu : DEFAULT_MENU_ITEMS).map((item) => ({ ...item }));
+export async function listMenu() {
+  return await readEntities<MenuItem>("menu") ?? menu.map((item) => ({ ...item }));
 }
 
-export function seedDefaultMenu(actor = "system"): MenuItem[] {
-  if (menu.length === 0) {
+export async function seedDefaultMenu(actor = "system"): Promise<MenuItem[]> {
+  if ((await listMenu()).length === 0) {
     for (const item of DEFAULT_MENU_ITEMS) {
+      await writeEntity("menu", item.id, item, actor, "MENU_INITIALIZED");
       menu.push({ ...item });
     }
     auditLog.unshift({
@@ -86,136 +87,40 @@ export function seedDefaultMenu(actor = "system"): MenuItem[] {
   return listMenu();
 }
 
-let hasSyncedFromDb = false;
-
-export async function syncOrdersFromDatabase(): Promise<void> {
-  try {
-    const db = await getDb();
-    if (!db) {
-      return;
-    }
-
-    const dbOrders = await db.select().from(ordersTable).orderBy(desc(ordersTable.createdAt));
-    if (!dbOrders || dbOrders.length === 0) {
-      hasSyncedFromDb = true;
-      return;
-    }
-
-    // Attempt to load order item lines
-    const dbItems = await db.select().from(orderItems).catch(() => []);
-
-    for (const dbo of dbOrders) {
-      const exists = orders.some((o) => o.orderNumber === dbo.orderNumber || o.id === String(dbo.id));
-      if (!exists) {
-        const linkedItems = (dbItems as any[]).filter((it) => it.orderId === dbo.id);
-        const orderLines: OrderLine[] = linkedItems.map((it) => {
-          let opts: string[] = [];
-          try {
-            if (it.optionsSnapshot) opts = JSON.parse(it.optionsSnapshot);
-          } catch {}
-          return {
-            id: `item-${it.id}`,
-            name: it.nameSnapshot || "Cinema Snack",
-            quantity: it.quantity || 1,
-            pricePaise: it.unitPricePaise || 0,
-            options: opts,
-          };
-        });
-
-        const items: OrderLine[] = orderLines.length > 0 ? orderLines : [
-          {
-            id: `line-${dbo.id}-item`,
-            name: "Cinema Snacks & Combo",
-            quantity: 1,
-            pricePaise: dbo.totalPaise,
-            options: [],
-          },
-        ];
-
-        // Parse screen & seat if stored in instructions like "[Screen 01 | Seat 12] notes"
-        let screen = "Screen 01";
-        let seat = "Seat";
-        let instructions: string | undefined = dbo.instructions ?? undefined;
-        if (instructions && instructions.startsWith("[")) {
-          const closeBracket = instructions.indexOf("]");
-          if (closeBracket !== -1) {
-            const tag = instructions.slice(1, closeBracket);
-            const parts = tag.split("|");
-            if (parts.length >= 2) {
-              screen = parts[0].trim();
-              seat = parts[1].trim();
-            }
-            instructions = instructions.slice(closeBracket + 1).trim() || undefined;
-          }
-        }
-
-        orders.push({
-          id: String(dbo.id),
-          orderNumber: dbo.orderNumber,
-          status: (dbo.status as OrderStatus) || "NEW",
-          screen,
-          seat,
-          customerName: dbo.customerName || "Cinema Guest",
-          phoneLast4: dbo.customerPhoneLast4 || "0000",
-          totalPaise: dbo.totalPaise,
-          items,
-          instructions,
-          source: (dbo.source as any) || "ONLINE",
-          paymentStatus: (dbo.paymentStatus as any) || "CONFIRMED",
-          createdAt: dbo.createdAt ? new Date(dbo.createdAt).toISOString() : new Date().toISOString(),
-          updatedAt: dbo.updatedAt ? new Date(dbo.updatedAt).toISOString() : new Date().toISOString(),
-          priority: "NORMAL",
-        });
-      }
-    }
-
-    orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    hasSyncedFromDb = true;
-  } catch (err) {
-    console.warn("[DB] syncOrdersFromDatabase error:", err);
-  }
+export async function listOrders() {
+  return await readOrders() ?? orders.map((order) => ({ ...order, items: order.items.map((line) => ({ ...line })) }));
 }
 
-export function listOrders() {
-  if (!hasSyncedFromDb) {
-    void syncOrdersFromDatabase();
-  }
-  return orders.map((order) => ({ ...order, items: order.items.map((line) => ({ ...line })) }));
-}
-
-export function listOrderHistory(input: {
+export async function listOrderHistory(input: {
   search?: string;
   status?: "ALL" | "DELIVERED" | "CANCELED";
   sort?: "newest" | "oldest" | "value";
 }) {
   const search = input.search?.trim().toLowerCase() ?? "";
-  return listOrders()
+  return (await listOrders())
     .filter((order) => order.status === "DELIVERED" || order.status === "CANCELED")
     .filter((order) => input.status === "ALL" || !input.status || order.status === input.status)
     .filter((order) => !search || [order.orderNumber, order.customerName, order.screen, order.seat].some((value) => value.toLowerCase().includes(search)))
     .sort((a, b) => input.sort === "oldest" ? a.createdAt.localeCompare(b.createdAt) : input.sort === "value" ? b.totalPaise - a.totalPaise : b.createdAt.localeCompare(a.createdAt));
 }
 
-export function getOrder(id: string) {
-  return orders.find((order) => order.id === id || order.orderNumber === id);
+export async function getOrder(id: string) {
+  const stored = await readOrder(id);
+  return stored === null ? orders.find((order) => order.id === id || order.orderNumber === id) : stored;
 }
 
-export function findOrderByNumberAndPhone(orderNumber: string, phoneLast4: string) {
-  return orders.find(
-    (order) =>
-      order.orderNumber.toUpperCase() === orderNumber.toUpperCase() &&
-      order.phoneLast4 === phoneLast4
-  );
+export async function findOrderByNumberAndPhone(orderNumber: string, phoneLast4: string) {
+  const order = await getOrder(orderNumber.toUpperCase());
+  return order?.phoneLast4 === phoneLast4 ? order : undefined;
 }
 
-export function findOrdersByFullPhone(phone: string) {
+export async function findOrdersByFullPhone(phone: string) {
   const clean = phone.replace(/\D/g, "").slice(-10);
   if (!clean || clean.length !== 10) {
     return [];
   }
-  return orders
+  return (await listOrders())
     .filter((order) => order.customerPhone === clean)
-    .slice(0, 6)
     .map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
@@ -231,120 +136,53 @@ export function findOrdersByFullPhone(phone: string) {
     }));
 }
 
-let hasSyncedStaffFromDb = false;
-
-export async function syncStaffFromDatabase(): Promise<void> {
-  try {
-    const db = await getDb();
-    if (!db) {
-      return;
-    }
-
-    const dbUsers = await db.select().from(usersTable);
-    for (const u of dbUsers) {
-      if (u.email && u.role && u.role !== "READ_ONLY") {
-        const cleanEmail = u.email.toLowerCase().trim();
-        const existing = staff.find((s) => s.email.toLowerCase() === cleanEmail);
-        if (!existing) {
-          staff.push({
-            id: `staff-${u.id}`,
-            name: u.name || cleanEmail.split("@")[0],
-            email: cleanEmail,
-            role: normalizeStaffRole(u.role),
-            status: u.openId && !u.openId.startsWith("invited-") ? "ACTIVE" : "INVITED",
-            invitedAt: u.createdAt ? new Date(u.createdAt).toISOString() : new Date().toISOString(),
-          });
-        } else {
-          existing.role = normalizeStaffRole(u.role);
-          if (u.openId && !u.openId.startsWith("invited-")) {
-            existing.status = "ACTIVE";
-          }
-        }
-      }
-    }
-    hasSyncedStaffFromDb = true;
-  } catch (err) {
-    console.warn("[DB] syncStaffFromDatabase error:", err);
-  }
+export async function listStaff() {
+  const configured = await readEntities<StaffMember>("staff");
+  if (!configured) return staff.map(member => ({ ...member }));
+  const db = await database();
+  if (!db) return configured;
+  // Preserve the real repository's pre-existing staff directory in users.
+  // Explicit durable overrides win; ordinary customer/user roles are not staff.
+  const legacy = await db.select().from(usersTable);
+  const known = new Set(configured.map(member => member.email.toLowerCase()));
+  return [...configured, ...legacy.flatMap(user => {
+    const role = user.role === "admin" ? "ADMIN" : user.role;
+    if (!user.email || known.has(user.email.toLowerCase()) || !STAFF_ROLES.includes(role as StaffRole)) return [];
+    return [{ id: `staff-user-${user.id}`, name: user.name ?? user.email, email: user.email.toLowerCase(), role: role as StaffRole, status: "ACTIVE" as const, invitedAt: user.createdAt.toISOString() }];
+  })];
 }
 
-export function listStaff() {
-  if (!hasSyncedStaffFromDb) {
-    void syncStaffFromDatabase();
-  }
-  return staff.map((member) => ({ ...member }));
-}
-
-export async function inviteStaff(name: string, email: string, role: StaffRole, actor: string): Promise<StaffMember> {
-  const cleanEmail = email.toLowerCase().trim();
-  const existing = staff.find((s) => s.email.toLowerCase() === cleanEmail);
-  const member: StaffMember = existing || {
-    id: `staff-${randomUUID().slice(0, 8)}`,
+export async function inviteStaff(name: string, email: string, role: StaffRole, actor: string) {
+  email = email.toLowerCase().trim();
+  if ((await listStaff()).some(member => member.email === email)) throw new Error("Staff email already exists");
+  const member: StaffMember = {
+    id: `staff-${randomUUID()}`,
     name,
-    email: cleanEmail,
+    email,
     role,
     status: "INVITED",
     invitedAt: new Date().toISOString(),
   };
-
-  if (existing) {
-    existing.name = name;
-    existing.role = role;
-  } else {
-    staff.unshift(member);
-  }
-
-  // Persist to database so staff is permanent across server restarts
-  try {
-    const db = await getDb();
-    if (db) {
-      const [found] = await db.select().from(usersTable).where(eq(usersTable.email, cleanEmail)).limit(1);
-      if (found) {
-        await db.update(usersTable).set({ name, role, updatedAt: new Date() }).where(eq(usersTable.id, found.id));
-      } else {
-        await db.insert(usersTable).values({
-          openId: `invited-${cleanEmail}`,
-          name,
-          email: cleanEmail,
-          role,
-          loginMethod: "google",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          lastSignedIn: new Date(),
-        });
-      }
-    }
-  } catch (err) {
-    console.warn("[DB] Failed to persist invited staff to database:", err);
-  }
-
+  await writeEntity("staff", member.email, member, actor, "STAFF_INVITED");
+  staff.unshift(member);
   auditLog.unshift({
     id: randomUUID(),
     action: "STAFF_INVITED",
-    detail: `${name} (${cleanEmail}) invited as ${role}`,
+    detail: `${name} invited as ${role}`,
     actor,
     createdAt: member.invitedAt,
   });
-
   return { ...member };
 }
 
 export async function updateStaffRole(id: string, role: StaffRole, actor: string) {
-  const member = staff.find((candidate) => candidate.id === id);
+  const member = (await listStaff()).find((candidate) => candidate.id === id);
   if (!member) throw new Error("Staff member not found");
   const previous = member.role;
   member.role = role;
-
-  // Persist update to database
-  try {
-    const db = await getDb();
-    if (db && member.email) {
-      await db.update(usersTable).set({ role, updatedAt: new Date() }).where(eq(usersTable.email, member.email.toLowerCase().trim()));
-    }
-  } catch (err) {
-    console.warn("[DB] Failed to update staff role in database:", err);
-  }
-
+  await writeEntity("staff", member.email, member, actor, "STAFF_ROLE_CHANGED");
+  const cached = staff.find(candidate => candidate.id === id);
+  if (cached) cached.role = role;
   auditLog.unshift({
     id: randomUUID(),
     action: "STAFF_ROLE_CHANGED",
@@ -355,41 +193,13 @@ export async function updateStaffRole(id: string, role: StaffRole, actor: string
   return { ...member };
 }
 
-export async function removeStaffMember(idOrEmail: string, actor: string) {
-  const index = staff.findIndex((s) => s.id === idOrEmail || s.email.toLowerCase() === idOrEmail.toLowerCase());
-  let targetEmail = idOrEmail;
-  let targetName = idOrEmail;
-  if (index !== -1) {
-    const [removed] = staff.splice(index, 1);
-    targetEmail = removed.email;
-    targetName = removed.name;
-  }
-
-  try {
-    const db = await getDb();
-    if (db) {
-      await db.delete(usersTable).where(eq(usersTable.email, targetEmail.toLowerCase().trim())).catch(() => {});
-    }
-  } catch (err) {
-    console.warn("[DB] Failed to remove staff from database:", err);
-  }
-
-  auditLog.unshift({
-    id: randomUUID(),
-    action: "STAFF_REMOVED",
-    detail: `${targetName} (${targetEmail}) removed from staff directory`,
-    actor,
-    createdAt: new Date().toISOString(),
-  });
-
-  return { success: true, email: targetEmail };
-}
-
-export function getShiftSummary(): ShiftSummary {
-  const completed = orders.filter((order) => order.status === "DELIVERED");
+export async function getShiftSummary(): Promise<ShiftSummary> {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const orders = (await listOrders()).filter(order => new Date(order.createdAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) === today);
+  const completed = orders.filter((order) => order.status === "DELIVERED" && order.paymentStatus === "CONFIRMED");
   const durations = completed.map((order) => Math.max(1, Math.round((new Date(order.updatedAt).getTime() - new Date(order.createdAt).getTime()) / 60000)));
   return {
-    shiftLabel: "Current shift",
+    shiftLabel: "Today (India time)",
     startedAt: new Date().toISOString(),
     completedOrders: completed.length,
     canceledOrders: orders.filter((order) => order.status === "CANCELED").length,
@@ -399,36 +209,21 @@ export function getShiftSummary(): ShiftSummary {
   };
 }
 
-export function getStats(): DashboardStats {
-  const itemCounts = new Map<string, number>();
-  for (const order of orders) {
-    if (order.paymentStatus === "CONFIRMED") {
-      for (const line of order.items) {
-        itemCounts.set(line.name, (itemCounts.get(line.name) ?? 0) + line.quantity);
-      }
-    }
-  }
-
-  let popularItem = "—";
-  let maxCount = 0;
-  for (const [name, count] of itemCounts.entries()) {
-    if (count > maxCount) {
-      maxCount = count;
-      popularItem = `${name} (${count} sold)`;
-    }
-  }
-
-  const confirmedOrders = orders.filter((order) => order.paymentStatus === "CONFIRMED");
-
+export async function getStats(): Promise<DashboardStats> {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const orders = (await listOrders()).filter(order => new Date(order.createdAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) === today);
+  const paid = orders.filter(order => order.paymentStatus === "CONFIRMED");
+  const quantities = new Map<string, number>();
+  paid.forEach(order => order.items.forEach(item => quantities.set(item.name, (quantities.get(item.name) ?? 0) + item.quantity)));
   return {
-    ordersToday: confirmedOrders.length,
-    revenuePaise: confirmedOrders.reduce((sum, order) => sum + order.totalPaise, 0),
-    pending: orders.filter((order) => order.status === "NEW" && order.paymentStatus === "CONFIRMED").length,
+    ordersToday: orders.length,
+    revenuePaise: paid.reduce((sum, order) => sum + order.totalPaise, 0),
+    pending: paid.filter((order) => order.status === "NEW").length,
     preparing: orders.filter((order) => order.status === "PREPARING").length,
     ready: orders.filter((order) => order.status === "READY").length,
     delivered: orders.filter((order) => order.status === "DELIVERED").length,
-    paymentFailures: orders.filter((order) => order.paymentStatus === "FAILED").length,
-    popularItem,
+    paymentFailures: orders.filter(order => order.paymentStatus === "FAILED").length,
+    popularItem: Array.from(quantities.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—",
   };
 }
 
@@ -441,10 +236,25 @@ export type CreateOrderInput = {
   instructions?: string;
   source?: "ONLINE" | "OFFLINE_SMS";
   paymentStatus?: "CONFIRMED" | "PENDING";
+  idempotencyKey?: string;
+  checkoutHash?: string;
+  showtimeId?: number;
+  consent?: import("@shared/consent").CheckoutConsent;
 };
 
 export async function createOrder(input: CreateOrderInput, actor = "customer"): Promise<KitchenOrder> {
-  const currentMenu = menu.length > 0 ? menu : DEFAULT_MENU_ITEMS;
+  const db = await database();
+  const checkoutHash = createHash("sha256").update(JSON.stringify({ ...input, checkoutHash: undefined, idempotencyKey: undefined })).digest("hex");
+  if (db && input.idempotencyKey) {
+    const [existing] = await db.select().from(ordersTable).where(eq(ordersTable.idempotencyKey, input.idempotencyKey)).limit(1);
+    if (existing) {
+      if (existing.checkoutHash !== checkoutHash || !existing.snapshot) throw new Error("Checkout key already belongs to a different request");
+      return { ...existing.snapshot, status: existing.status, paymentStatus: existing.paymentStatus };
+    }
+  }
+  if (!input.items.length || input.items.length > 30) throw new Error("Invalid cart size");
+  const storedMenu = await listMenu();
+  const currentMenu = storedMenu.length > 0 ? storedMenu : DEFAULT_MENU_ITEMS;
   const orderLines: OrderLine[] = [];
   let totalPaise = 0;
 
@@ -456,8 +266,11 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
     if (!menuItem.available) {
       throw new Error(`Menu item is currently unavailable: ${menuItem.name}`);
     }
-    if (line.quantity <= 0 || line.quantity > 20) {
+    if (!Number.isInteger(line.quantity) || line.quantity <= 0 || line.quantity > 20) {
       throw new Error(`Invalid quantity for ${menuItem.name}: ${line.quantity}`);
+    }
+    if ((line.options ?? []).some(option => !menuItem.options.includes(option))) {
+      throw new Error(`Invalid option for ${menuItem.name}`);
     }
     const linePrice = menuItem.pricePaise * line.quantity;
     totalPaise += linePrice;
@@ -473,8 +286,7 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
   const phoneDigits = input.phone.replace(/\D/g, "");
   const customerPhone = phoneDigits.slice(-10);
   const phoneLast4 = phoneDigits.slice(-4) || "0000";
-  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-  const orderNumber = `CB-${randomSuffix}`;
+  const orderNumber = `CB-${randomBytes(12).toString("hex").toUpperCase()}`;
   const nowIso = new Date().toISOString();
   const paymentStatus = input.paymentStatus ?? "PENDING";
   // Add ₹10 (1000 paise) platform fee per order
@@ -482,7 +294,7 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
   totalPaise += platformFeePaise;
 
   const newOrder: KitchenOrder = {
-    id: `order-${randomUUID().slice(0, 8)}`,
+    id: `order-${randomUUID()}`,
     orderNumber,
     status: "NEW",
     screen: input.screen || "Screen 01",
@@ -501,6 +313,17 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
     priority: "NORMAL",
   };
 
+  // Persist before publishing the order or telling the client to pay.
+  try {
+    await persistOrder(newOrder, { ...input, checkoutHash });
+  } catch (error) {
+    // A concurrent retry may have inserted the same unique checkout key.
+    if (db && input.idempotencyKey) {
+      const [existing] = await db.select().from(ordersTable).where(eq(ordersTable.idempotencyKey, input.idempotencyKey)).limit(1);
+      if (existing?.snapshot && existing.checkoutHash === checkoutHash) return { ...existing.snapshot, status: existing.status, paymentStatus: existing.paymentStatus };
+    }
+    throw error;
+  }
   orders.unshift(newOrder);
 
   auditLog.unshift({
@@ -520,78 +343,89 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
     listeners.forEach((listener) => listener(event));
   }
 
-  // Asynchronous database persistence when database is configured
-  try {
-    const db = await getDb();
-    if (db) {
-      const formattedInstructions = `[${newOrder.screen} | ${newOrder.seat}] ${newOrder.instructions ?? ""}`.trim();
-      const insertResult = await db.insert(ordersTable).values({
-        orderNumber: newOrder.orderNumber,
-        status: "NEW",
-        source: newOrder.source,
-        paymentStatus,
-        screenId: 1,
-        seatId: 1,
-        customerName: newOrder.customerName,
-        customerPhoneLast4: newOrder.phoneLast4,
-        totalPaise: newOrder.totalPaise,
-        instructions: formattedInstructions || null,
-        idempotencyKey: `idemp-${randomUUID()}`,
-        paymentConfirmedAt: paymentStatus === "CONFIRMED" ? new Date() : null,
-      }).catch((e) => {
-        console.warn("[DB] Failed to persist order:", e);
-        return null;
-      });
-
-      // Also persist individual order items if insert succeeded
-      if (insertResult) {
-        const [found] = await db
-          .select({ id: ordersTable.id })
-          .from(ordersTable)
-          .where(eq(ordersTable.orderNumber, newOrder.orderNumber))
-          .limit(1)
-          .catch(() => []);
-
-        if (found?.id) {
-          for (const line of newOrder.items) {
-            await db.insert(orderItems).values({
-              orderId: found.id,
-              menuItemId: 1,
-              nameSnapshot: line.name,
-              quantity: line.quantity,
-              unitPricePaise: line.pricePaise,
-              optionsSnapshot: JSON.stringify(line.options || []),
-            }).catch(() => {});
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[DB] Order persistence skipped:", err);
-  }
-
   return newOrder;
 }
 
 /**
  * Confirms payment for an order and notifies kitchen
  */
-export async function confirmOrderPayment(input: {
+type PaymentConfirmation = {
   orderId: string;
   providerOrderId: string;
   providerPaymentId: string;
   signature?: string;
-}, actor = "payment_gateway"): Promise<KitchenOrder> {
-  const order = orders.find((o) => o.id === input.orderId || o.orderNumber === input.orderId);
+};
+
+const paymentQueues = new Map<string, Promise<unknown>>();
+const confirmedPaymentIds = new Map<string, string>();
+
+export function confirmOrderPayment(input: PaymentConfirmation, actor = "payment_gateway", fromVerifiedWebhook = false): Promise<KitchenOrder> {
+  // Serialize state changes while this process-memory store remains in use.
+  // Database row locks/unique constraints protect the persisted confirmation.
+  const result = (paymentQueues.get(input.orderId) ?? Promise.resolve()).then(() => confirmPayment(input, actor, fromVerifiedWebhook));
+  const settled = result.catch(() => undefined);
+  paymentQueues.set(input.orderId, settled);
+  void settled.then(() => { if (paymentQueues.get(input.orderId) === settled) paymentQueues.delete(input.orderId); });
+  return result;
+}
+
+async function confirmPayment(input: PaymentConfirmation, actor: string, fromVerifiedWebhook: boolean): Promise<KitchenOrder> {
+  const order = await getOrder(input.orderId);
   if (!order) {
     throw new Error(`Order not found: ${input.orderId}`);
   }
 
-  if (order.paymentStatus === "CONFIRMED") {
-    return order; // Idempotent: already confirmed
+  const provider = getPaymentProvider();
+  const verify = fromVerifiedWebhook ? provider.verifyCapturedPayment.bind(provider) : provider.verifyPayment.bind(provider);
+  const verified = await verify({
+    ...input,
+    signature: input.signature ?? "",
+    amountPaise: order.totalPaise,
+    receipt: order.orderNumber,
+  });
+  if (!verified) throw new TRPCError({ code: "BAD_REQUEST", message: "Payment does not match this order or has not been captured." });
+  const existingOrderId = confirmedPaymentIds.get(input.providerPaymentId);
+  if (existingOrderId && existingOrderId !== order.id) throw new Error("Payment already used");
+  if (order.paymentStatus === "CONFIRMED" && process.env.NODE_ENV === "test") {
+    if (existingOrderId !== order.id) throw new Error("Order already paid by a different payment");
+    return order;
   }
 
   const nowIso = new Date().toISOString();
+  const db = await getDb();
+  if (!db && process.env.NODE_ENV === "production") throw new Error("Database unavailable");
+  if (db) {
+    const duplicate = await db.transaction(async tx => {
+      const [storedOrder] = await tx.select().from(ordersTable)
+        .where(eq(ordersTable.orderNumber, order.orderNumber)).limit(1).for("update");
+      if (!storedOrder || storedOrder.totalPaise !== order.totalPaise) throw new Error("Persisted order is missing or inconsistent");
+      if (storedOrder.providerOrderId !== input.providerOrderId) throw new Error("Payment intent does not belong to this order");
+      const [existingPayment] = await tx.select().from(paymentsTable)
+        .where(eq(paymentsTable.providerPaymentId, input.providerPaymentId)).limit(1);
+      if (existingPayment && (existingPayment.orderId !== storedOrder.id ||
+        existingPayment.providerOrderId !== input.providerOrderId || existingPayment.amountPaise !== order.totalPaise)) {
+        throw new Error("Payment already used");
+      }
+      if (existingPayment && storedOrder.paymentStatus === "CONFIRMED") return true;
+      if (!existingPayment) {
+        if (storedOrder.paymentStatus === "CONFIRMED") throw new Error("Order already paid");
+        await tx.insert(paymentsTable).values({
+          orderId: storedOrder.id,
+          provider: "razorpay",
+          providerPaymentId: input.providerPaymentId,
+          providerOrderId: input.providerOrderId,
+          amountPaise: order.totalPaise,
+          signatureVerified: 1,
+        });
+      }
+      await tx.update(ordersTable).set({ paymentStatus: "CONFIRMED", paymentConfirmedAt: new Date(), updatedAt: new Date() })
+        .where(eq(ordersTable.id, storedOrder.id));
+      await tx.insert(auditLogsTable).values({ action: "ORDER_PAYMENT_CONFIRMED", entityType: "order", entityId: order.id, detail: JSON.stringify({ actor, paymentId: input.providerPaymentId }) });
+      return false;
+    });
+    if (duplicate) return order;
+  }
+  confirmedPaymentIds.set(input.providerPaymentId, order.id);
   order.paymentStatus = "CONFIRMED";
   order.status = "NEW";
   order.updatedAt = nowIso;
@@ -611,44 +445,30 @@ export async function confirmOrderPayment(input: {
   };
   listeners.forEach((listener) => listener(event));
 
-  // Persist confirmation and payment record to TiDB
-  try {
-    const db = await getDb();
-    if (db) {
-      await db
-        .update(ordersTable)
-        .set({
-          paymentStatus: "CONFIRMED",
-          paymentConfirmedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(ordersTable.orderNumber, order.orderNumber))
-        .catch((e) => console.warn("[DB] Failed to update order paymentStatus:", e));
-
-      await db
-        .insert(paymentsTable)
-        .values({
-          orderId: 1, // linked via orderNumber/id
-          provider: "razorpay",
-          providerPaymentId: input.providerPaymentId,
-          providerOrderId: input.providerOrderId,
-          amountPaise: order.totalPaise,
-          signatureVerified: 1,
-        })
-        .catch((e) => console.warn("[DB] Failed to insert payment record:", e));
-    }
-  } catch (err) {
-    console.warn("[DB] Payment persistence skipped:", err);
-  }
-
   return order;
 }
 
-export function updateOrderStatus(orderId: string, status: OrderStatus, actor: string) {
-  const order = orders.find((candidate) => candidate.id === orderId || candidate.orderNumber === orderId);
+export async function ensurePaymentIntent(order: KitchenOrder) {
+  const provider = getPaymentProvider();
+  const db = await database();
+  if (!db) return provider.createIntent({ amountPaise: order.totalPaise, receipt: order.orderNumber });
+  return db.transaction(async tx => {
+    const [row] = await tx.select().from(ordersTable).where(eq(ordersTable.orderNumber, order.orderNumber)).limit(1).for("update");
+    if (!row) throw new Error("Order not found");
+    if (row.providerOrderId) return { provider: "razorpay" as const, providerOrderId: row.providerOrderId, amountPaise: row.totalPaise, currency: "INR" as const, keyId: process.env.RAZORPAY_KEY_ID };
+    const intent = await provider.createIntent({ amountPaise: row.totalPaise, receipt: row.orderNumber });
+    await tx.update(ordersTable).set({ providerOrderId: intent.providerOrderId }).where(eq(ordersTable.id, row.id));
+    return intent;
+  });
+}
+
+export async function updateOrderStatus(orderId: string, status: OrderStatus, actor: string) {
+  const order = await getOrder(orderId);
   if (!order) throw new Error("Order not found");
+  if (order.paymentStatus !== "CONFIRMED") throw new Error("Unpaid orders cannot enter preparation");
   if (!isValidTransition(order.status, status)) throw new Error(`Invalid transition: ${order.status} → ${status}`);
   const previous = order.status;
+  await persistStatus({ ...order, status }, previous, actor);
   order.status = status;
   order.updatedAt = new Date().toISOString();
   lastTransitions.set(order.id, { from: previous, to: status });
@@ -662,26 +482,17 @@ export function updateOrderStatus(orderId: string, status: OrderStatus, actor: s
   const event = { type: "order.statusChanged", order: { ...order, items: order.items.map((line) => ({ ...line })) } };
   listeners.forEach((listener) => listener(event));
 
-  // Asynchronously update DB status if available
-  getDb().then((db) => {
-    if (db && (status === "PREPARING" || status === "READY" || status === "DELIVERED")) {
-      db.update(ordersTable)
-        .set({ status, updatedAt: new Date() })
-        .where(eq(ordersTable.orderNumber, order.orderNumber))
-        .catch(() => {});
-    }
-  }).catch(() => {});
-
   return order;
 }
 
-export function undoOrderStatus(orderId: string, expectedStatus: OrderStatus, actor: string) {
-  const order = orders.find((candidate) => candidate.id === orderId || candidate.orderNumber === orderId);
+export async function undoOrderStatus(orderId: string, expectedStatus: OrderStatus, actor: string) {
+  const order = await getOrder(orderId);
   const transition = order ? lastTransitions.get(order.id) : undefined;
   if (!order || !transition || order.status !== expectedStatus || transition.to !== expectedStatus) {
     throw new Error("This status change can no longer be undone");
   }
   const previous = order.status;
+  await persistStatus({ ...order, status: transition.from }, previous, actor);
   order.status = transition.from;
   order.updatedAt = new Date().toISOString();
   lastTransitions.delete(order.id);
@@ -697,13 +508,16 @@ export function undoOrderStatus(orderId: string, expectedStatus: OrderStatus, ac
   return order;
 }
 
-export function toggleMenuAvailability(id: string, available: boolean, actor: string) {
-  if (menu.length === 0) {
-    seedDefaultMenu("system");
+export async function toggleMenuAvailability(id: string, available: boolean, actor: string) {
+  if ((await listMenu()).length === 0) {
+    await seedDefaultMenu("system");
   }
-  const item = menu.find((candidate) => candidate.id === id);
+  const item = (await listMenu()).find((candidate) => candidate.id === id);
   if (!item) throw new Error("Menu item not found");
   item.available = available;
+  await writeEntity("menu", item.id, item, actor, "MENU_AVAILABILITY_CHANGED");
+  const cached = menu.find(candidate => candidate.id === id);
+  if (cached) cached.available = available;
   const createdAt = new Date().toISOString();
   auditLog.unshift({
     id: randomUUID(),
@@ -720,7 +534,9 @@ export function subscribe(listener: (event: { type: string; order: KitchenOrder 
   return () => listeners.delete(listener);
 }
 
-export function getAuditLog() {
+export async function getAuditLog() {
+  const db = await database();
+  if (db) return (await db.select().from(auditLogsTable)).reverse().slice(0, 50).map(row => ({ id: String(row.id), action: row.action, detail: row.detail ?? "", actor: "server", createdAt: row.createdAt.toISOString() }));
   return auditLog.slice(0, 50);
 }
 
@@ -729,68 +545,7 @@ export function resetDemoData() {
   menu.splice(0, menu.length);
   staff.splice(0, staff.length);
   auditLog.splice(0, auditLog.length);
+  lastTransitions.clear();
+  confirmedPaymentIds.clear();
   return orders;
 }
-
-export const DEVELOPER_DELETE_CODE = process.env.DEVELOPER_DELETE_CODE || "9776600";
-
-export async function deleteOrderFromDatabase(
-  orderId: string,
-  developerCode: string,
-  actor: string
-): Promise<{ success: boolean; orderNumber: string }> {
-  if (developerCode.trim() !== DEVELOPER_DELETE_CODE) {
-    throw new Error("Invalid developer authorization code. Order deletion denied.");
-  }
-
-  const index = orders.findIndex((o) => o.id === orderId || o.orderNumber === orderId);
-  let deletedOrder: KitchenOrder | undefined;
-  if (index !== -1) {
-    [deletedOrder] = orders.splice(index, 1);
-    lastTransitions.delete(deletedOrder.id);
-  }
-
-  const orderNumber = deletedOrder?.orderNumber || orderId;
-
-  // Persist deletion in MySQL / TiDB database
-  try {
-    const db = await getDb();
-    if (db) {
-      const [dbOrder] = await db
-        .select()
-        .from(ordersTable)
-        .where(eq(ordersTable.orderNumber, orderNumber))
-        .limit(1);
-
-      if (dbOrder) {
-        await db.delete(orderItems).where(eq(orderItems.orderId, dbOrder.id)).catch(() => {});
-        await db.delete(paymentsTable).where(eq(paymentsTable.orderId, dbOrder.id)).catch(() => {});
-        await db.delete(refunds).where(eq(refunds.orderId, dbOrder.id)).catch(() => {});
-        await db.delete(consentRecords).where(eq(consentRecords.orderId, dbOrder.id)).catch(() => {});
-        await db.delete(ordersTable).where(eq(ordersTable.id, dbOrder.id)).catch(() => {});
-      }
-    }
-  } catch (err) {
-    console.warn("[DB] Failed to delete order from database:", err);
-  }
-
-  auditLog.unshift({
-    id: randomUUID(),
-    action: "ORDER_DELETED_PERMANENTLY",
-    detail: `Order ${orderNumber} permanently deleted from database by ${actor} using developer code`,
-    actor,
-    createdAt: new Date().toISOString(),
-  });
-
-  // Broadcast deletion event to listeners
-  if (deletedOrder) {
-    const event = {
-      type: "order.deleted",
-      order: { ...deletedOrder, status: "CANCELED" as OrderStatus },
-    };
-    listeners.forEach((listener) => listener(event));
-  }
-
-  return { success: true, orderNumber };
-}
-

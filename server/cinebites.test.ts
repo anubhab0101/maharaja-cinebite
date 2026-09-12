@@ -14,12 +14,12 @@ describe("CineBites production baseline", () => {
     expect(isValidTransition("DELIVERED", "READY")).toBe(false);
   });
 
-  it("starts without demo menu, orders, staff, or inflated metrics", () => {
-    expect(listMenu()).toEqual([]);
-    expect(listOrders()).toEqual([]);
-    expect(listStaff()).toEqual([]);
-    expect(listOrderHistory({ status: "ALL", sort: "newest" })).toEqual([]);
-    expect(getStats()).toMatchObject({ ordersToday: 0, revenuePaise: 0, pending: 0, preparing: 0, ready: 0, delivered: 0, paymentFailures: 0, popularItem: "—" });
+  it("starts without demo menu, orders, staff, or inflated metrics", async () => {
+    expect(await listMenu()).toEqual([]);
+    expect(await listOrders()).toEqual([]);
+    expect(await listStaff()).toEqual([]);
+    expect(await listOrderHistory({ status: "ALL", sort: "newest" })).toEqual([]);
+    expect(await getStats()).toMatchObject({ ordersToday: 0, revenuePaise: 0, pending: 0, preparing: 0, ready: 0, delivered: 0, paymentFailures: 0, popularItem: "—" });
   });
 
   it("recognizes only approved staff roles", () => {

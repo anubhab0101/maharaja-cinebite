@@ -3,17 +3,19 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import path from "path";
-import crypto from "crypto";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { findOrderByNumberAndPhone, subscribe, syncOrdersFromDatabase, syncStaffFromDatabase } from "../cinebites-store";
+import { findOrderByNumberAndPhone, subscribe } from "../cinebites-store";
 import { securityHeaders, createRateLimiter } from "./security";
 import { sdk } from "./sdk";
 import { hasStaffRole } from "@shared/cinebites";
+import { registerPaymentWebhook } from "../payment-webhook";
+import { database } from "../durable-store";
+import { sql } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -34,19 +36,31 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   app.disable("x-powered-by");
+  // Explicit proxy addresses/subnets only. Never infer trust from a request.
+  const trustedProxies = process.env.TRUSTED_PROXY_CIDRS?.split(",").map(value => value.trim()).filter(Boolean);
+  if (trustedProxies?.length) {
+    if (trustedProxies.some(value => /^(true|false|\*|0\.0\.0\.0\/0|::\/0)$/i.test(value))) throw new Error("Unsafe proxy trust configuration");
+    app.set("trust proxy", trustedProxies);
+  }
+  if (process.env.NODE_ENV === "production") {
+    const required = ["DATABASE_URL", "PUBLIC_APP_URL", "JWT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "OWNER_EMAIL", "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"];
+    if (required.some(key => !process.env[key])) throw new Error("Required production configuration is missing");
+    if ((process.env.JWT_SECRET?.length ?? 0) < 32 || /placeholder|your-|replace/i.test(process.env.JWT_SECRET ?? "")) throw new Error("Set a strong JWT secret");
+    if (new URL(process.env.PUBLIC_APP_URL!).protocol !== "https:") throw new Error("Production PUBLIC_APP_URL must use HTTPS");
+    const db = await database();
+    if (!db) throw new Error("Database required");
+    await db.execute(sql`SELECT publicId, snapshot, providerOrderId FROM orders LIMIT 0`);
+    await db.execute(sql`SELECT payload FROM store_entities LIMIT 0`);
+    const [legacy] = await db.execute(sql`SELECT COUNT(*) AS missing FROM orders WHERE snapshot IS NULL`);
+    if (Number((legacy as any)[0]?.missing) > 0) throw new Error("Legacy order backfill required before serving production traffic");
+  }
 
   // HTTP Security Headers (OWASP recommendations)
   app.use(securityHeaders);
+  registerPaymentWebhook(app);
 
   // Safe request body limits (protects against Memory Exhaustion / DoS)
-  app.use(
-    express.json({
-      limit: "1mb",
-      verify: (req: any, _res, buf) => {
-        req.rawBody = buf;
-      },
-    })
-  );
+  app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
   // API rate limiters (protects against Brute Force & abuse)
@@ -54,12 +68,10 @@ async function startServer() {
   const authLimiter = createRateLimiter({ windowMs: 60 * 1000, maxRequests: 30, message: "Too many login attempts, please try again later." });
 
   app.use("/api", apiLimiter);
-  app.use("/api/oauth", authLimiter);
+  app.use("/api/auth", authLimiter);
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-
-  app.get("/health", (_req, res) => res.json({ ok: true, service: "cinebites", realtime: "ready", timestamp: new Date().toISOString() }));
 
   // 1. Direct handlers for search engine & security compliance files
   app.get("/robots.txt", (_req, res) => {
@@ -109,7 +121,7 @@ async function startServer() {
       "/vitest.config.ts",
     ];
 
-    if (sensitiveFilePattern.test(rawPath) || sensitiveExactFiles.includes(rawPath)) {
+    if (process.env.NODE_ENV === "production" && (sensitiveFilePattern.test(rawPath) || sensitiveExactFiles.includes(rawPath))) {
       res.status(404).type("text/plain").send("Not Found");
       return;
     }
@@ -117,35 +129,13 @@ async function startServer() {
     next();
   });
 
-  // Razorpay Webhook Listener
-  app.post("/api/payment/webhook", async (req, res) => {
+  app.get("/health", async (_req, res) => {
     try {
-      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-      const signature = req.headers["x-razorpay-signature"] as string | undefined;
-
-      if (webhookSecret && signature) {
-        const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-        const expectedSignature = crypto
-          .createHmac("sha256", webhookSecret)
-          .update(rawBody)
-          .digest("hex");
-
-        if (expectedSignature !== signature) {
-          console.warn("[Razorpay Webhook] Signature mismatch received");
-          res.status(400).json({ error: "Invalid webhook signature" });
-          return;
-        }
-      }
-
-      const event = req.body?.event;
-      console.log(`[Razorpay Webhook] Event received: ${event}`);
-
-      // Always return 200 OK so Razorpay registers successful delivery
-      res.status(200).json({ status: "ok" });
-    } catch (err) {
-      console.error("[Razorpay Webhook] Error handling webhook:", err);
-      res.status(200).json({ status: "ok" });
-    }
+      const db = await database();
+      if (!db) throw new Error("Database unavailable");
+      await db.execute(sql`SELECT 1`);
+      res.json({ ok: true, service: "cinebites" });
+    } catch { res.status(503).json({ ok: false, service: "cinebites" }); }
   });
 
   // Scoped SSE event stream: Prevents unauthorized eavesdropping on all cinema orders
@@ -166,7 +156,7 @@ async function startServer() {
     // A public stream needs both customer factors and must be validated before
     // subscribing. An order number alone is not an authorization token.
     const trackedOrder = !isStaff && trackedOrderNumber && phoneLast4
-      ? findOrderByNumberAndPhone(trackedOrderNumber, phoneLast4)
+      ? await findOrderByNumberAndPhone(trackedOrderNumber, phoneLast4)
       : null;
     if (!isStaff && !trackedOrder) {
       res.status(401).json({ error: "Unauthorized. Staff login or valid order tracking details required." });
@@ -195,7 +185,15 @@ async function startServer() {
       }
     });
 
-    const heartbeat = setInterval(() => res.write(`event: heartbeat\ndata: {}\n\n`), 20000);
+    const heartbeat = setInterval(async () => {
+      if (isStaff) {
+        try {
+          const current = await sdk.authenticateRequest(req);
+          if (!hasStaffRole(current.role, ["OWNER_ADMIN", "ADMIN", "MANAGER", "KITCHEN", "CASHIER"])) throw new Error("Revoked");
+        } catch { clearInterval(heartbeat); unsubscribe(); res.end(); return; }
+      }
+      if (!res.writableEnded) res.write(`event: heartbeat\ndata: {}\n\n`);
+    }, 20000);
     req.on("close", () => { clearInterval(heartbeat); unsubscribe(); res.end(); });
   });
 
@@ -212,52 +210,9 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
   if (port !== preferredPort) console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
-    syncOrdersFromDatabase().then(() => console.log("[DB] Orders synchronized on boot")).catch(console.warn);
-    syncStaffFromDatabase().then(() => console.log("[DB] Staff synchronized on boot")).catch(console.warn);
-    startKeepAlive();
-  });
+  server.listen(port, () => console.log(`Server running on http://localhost:${port}/`));
 }
 
-function startKeepAlive() {
-  // Don't ping if running on local machine on standard dev port without external URL
-  const isLocalDev = process.env.NODE_ENV === "development" && !process.env.RENDER_EXTERNAL_URL && !process.env.PUBLIC_APP_URL;
-  if (isLocalDev) {
-    return;
-  }
-
-  const rawUrl =
-    process.env.PUBLIC_APP_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
-    "https://cinebite.store";
-
-  const target = `${rawUrl.replace(/\/$/, "")}/health`;
-  console.log(`[Keep-Alive] Self-ping active. Target: ${target} (every 7 minutes)`);
-
-  // Initial ping 20s after startup
-  setTimeout(async () => {
-    try {
-      const res = await fetch(target);
-      if (res.ok) console.log(`[Keep-Alive] Initial self-ping completed.`);
-    } catch (err: any) {
-      console.warn(`[Keep-Alive] Initial self-ping notice: ${err.message}`);
-    }
-  }, 20 * 1000);
-
-  // Periodic ping every 7 minutes (Render sleeps after 15m idle)
-  setInterval(async () => {
-    try {
-      const res = await fetch(target);
-      if (res.ok) {
-        console.log(`[Keep-Alive] Self-ping successful at ${new Date().toLocaleTimeString()}`);
-      }
-    } catch (err: any) {
-      console.warn(`[Keep-Alive] Self-ping warning: ${err.message}`);
-    }
-  }, 7 * 60 * 1000);
-}
-
-startServer().catch(console.error);
+startServer().catch(error => { console.error("Server startup failed", error); process.exitCode = 1; });

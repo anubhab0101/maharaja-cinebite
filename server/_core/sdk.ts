@@ -1,4 +1,4 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS, decodeOAuthState } from "@shared/const";
+import { AXIOS_TIMEOUT_MS, COOKIE_NAME, decodeOAuthState } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -8,6 +8,9 @@ import crypto from "crypto";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { listStaff } from "../cinebites-store";
+import { normalizeStaffRole } from "@shared/cinebites";
+import { isLocalDevLoginAllowed } from "./security";
 
 let devFallbackSecret: string | null = null;
 import type {
@@ -198,7 +201,7 @@ class SDKServer {
     options: { expiresInMs?: number } = {}
   ): Promise<string> {
     const issuedAt = Date.now();
-    const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
+    const expiresInMs = Math.min(options.expiresInMs ?? 8 * 60 * 60 * 1000, 8 * 60 * 60 * 1000);
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
 
@@ -210,6 +213,7 @@ class SDKServer {
       role: payload.role,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt()
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
   }
@@ -225,10 +229,11 @@ class SDKServer {
       const secretKey = this.getSessionSecret();
       const { payload } = await jwtVerify(cookieValue, secretKey, {
         algorithms: ["HS256"],
+        maxTokenAge: "8h",
       });
       const { openId, appId, name, email, role } = payload as Record<string, unknown>;
 
-      if (!isNonEmptyString(openId)) {
+      if (!isNonEmptyString(openId) || appId !== ENV.appId) {
         console.warn("[Auth] Session payload missing openId");
         return null;
       }
@@ -322,32 +327,24 @@ class SDKServer {
         }
       }
 
-      // Fallback: Reconstruct from verified signed JWT session
-      if (!user) {
-        const email = (session.email || (sessionUserId.includes(ENV.ownerEmail) ? ENV.ownerEmail : "")).toLowerCase().trim();
-        const isOwner =
-          email === ENV.ownerEmail ||
-          ENV.adminEmails.includes(email) ||
-          sessionUserId.includes(ENV.ownerEmail) ||
-          sessionUserId.startsWith("google-owner-") ||
-          session.role === "OWNER_ADMIN";
-
-        const assignedRole = isOwner ? "OWNER_ADMIN" : (session.role || "READ_ONLY");
-
-        await db.upsertUser({
-          openId: sessionUserId,
-          name: session.name || (isOwner ? "Owner Admin" : "Staff Member"),
-          email: email || ENV.ownerEmail,
-          loginMethod: sessionUserId.startsWith("google-") ? "google" : "dev",
-          role: assignedRole,
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(sessionUserId);
-      }
+      // Deleted/missing accounts must not be recreated from old token roles.
     }
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    if (user.loginMethod === "dev_mock") {
+      if (!isLocalDevLoginAllowed(req)) throw ForbiddenError("Development session unavailable");
+    } else if (user.loginMethod === "google") {
+      const email = user.email?.toLowerCase().trim() ?? "";
+      if (email && (email === ENV.ownerEmail || ENV.adminEmails.includes(email))) {
+        user = { ...user, role: "OWNER_ADMIN" };
+      } else {
+        const member = (await listStaff()).find(member => member.email.toLowerCase().trim() === email);
+        if (!member || member.status === "SUSPENDED") throw ForbiddenError("Staff access revoked");
+        user = { ...user, role: normalizeStaffRole(member.role) };
+      }
     }
 
     await db.upsertUser({

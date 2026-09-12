@@ -75,19 +75,19 @@ describe("Security & Defense Hardening", () => {
       instructions: "Extra caramel on popcorn",
     });
 
-    expect(order.orderNumber).toMatch(/^CB-\d{4}$/);
+    expect(order.orderNumber).toMatch(/^CB-[A-F0-9]{24}$/);
     expect(order.phoneLast4).toBe("3210");
     expect(order.platformFeePaise).toBe(1000);
     expect(order.totalPaise).toBe(24400); // (11700 * 2) + 1000 platform fee
     expect(order.customerName).toBe("Priya Sharma");
 
     // Test finding order with valid phoneLast4
-    const tracked = findOrderByNumberAndPhone(order.orderNumber, "3210");
+    const tracked = await findOrderByNumberAndPhone(order.orderNumber, "3210");
     expect(tracked).toBeDefined();
     expect(tracked?.totalPaise).toBe(24400);
 
     // Test tracking rejection with wrong phone
-    const unauthenticatedTrack = findOrderByNumberAndPhone(order.orderNumber, "9999");
+    const unauthenticatedTrack = await findOrderByNumberAndPhone(order.orderNumber, "9999");
     expect(unauthenticatedTrack).toBeUndefined();
   });
 
@@ -104,16 +104,16 @@ describe("Security & Defense Hardening", () => {
     const { findOrdersByFullPhone } = await import("./cinebites-store");
 
     // Full 10-digit search matches
-    const matches = findOrdersByFullPhone("9876543210");
+    const matches = await findOrdersByFullPhone("9876543210");
     expect(matches.length).toBeGreaterThan(0);
     expect(matches.some((m) => m.orderNumber === order.orderNumber)).toBe(true);
 
     // Partial 4-digit search is strictly rejected
-    const partialMatch = findOrdersByFullPhone("3210");
+    const partialMatch = await findOrdersByFullPhone("3210");
     expect(partialMatch).toEqual([]);
 
     // 9-digit incomplete number is rejected
-    const incompleteMatch = findOrdersByFullPhone("987654321");
+    const incompleteMatch = await findOrdersByFullPhone("987654321");
     expect(incompleteMatch).toEqual([]);
   });
 
@@ -133,9 +133,9 @@ describe("Security & Defense Hardening", () => {
 
     const confirmed = await confirmOrderPayment({
       orderId: order.id,
-      providerOrderId: "order_mock_123",
+      providerOrderId: `order_mock_${order.orderNumber}`,
       providerPaymentId: "pay_mock_456",
-      signature: "sig_mock_789",
+      signature: "mock_test_signature",
     });
 
     expect(confirmed.paymentStatus).toBe("CONFIRMED");

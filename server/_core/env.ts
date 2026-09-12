@@ -4,8 +4,8 @@ export const ENV = {
   databaseUrl: process.env.DATABASE_URL ?? "",
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
-  ownerEmail: (process.env.OWNER_EMAIL ?? "anubhabmohapatra.01@gmail.com").toLowerCase().trim(),
-  adminEmails: (process.env.ADMIN_EMAILS ?? "anubhabmohapatra.01@gmail.com")
+  ownerEmail: (process.env.OWNER_EMAIL ?? "").toLowerCase().trim(),
+  adminEmails: (process.env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean),

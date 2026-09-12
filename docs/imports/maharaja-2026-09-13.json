@@ -1,0 +1,35 @@
+{
+  "sourceUrl": "https://in.bookmyshow.com/cinemas/BHUB/maharaja-christie-4k-dolby-atmos-64-channel/buytickets/MPDB/20260913",
+  "date": "2026-09-13",
+  "screenName": "UNMAPPED_PREVIEW",
+  "observedAt": "2026-09-12T16:26:22.000Z",
+  "movies": [
+    {
+      "title": "Dandakali",
+      "movieUrl": "https://in.bookmyshow.com/movies/BHUB/dandakali/ET00510338",
+      "language": "Odia",
+      "format": "2D",
+      "certificate": "UA16+",
+      "durationMinutes": 160,
+      "times": ["10:05 AM"]
+    },
+    {
+      "title": "Dahaan: The Evil Within",
+      "movieUrl": "https://in.bookmyshow.com/movies/BHUB/dahaan-the-evil-within/ET00509404",
+      "language": "Odia",
+      "format": "2D",
+      "certificate": "A",
+      "durationMinutes": 133,
+      "times": ["01:05 PM", "03:45 PM"]
+    },
+    {
+      "title": "Mirzapur: The Movie",
+      "movieUrl": "https://in.bookmyshow.com/movies/BHUB/mirzapur-the-movie/ET00417686",
+      "language": "Hindi",
+      "format": "2D",
+      "certificate": "A",
+      "durationMinutes": 197,
+      "times": ["06:30 PM", "10:10 PM"]
+    }
+  ]
+}

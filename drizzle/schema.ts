@@ -1,4 +1,5 @@
-import { int, index, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { int, index, json, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import type { KitchenOrder } from "../shared/cinebites";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -53,6 +54,11 @@ export const menuItemOptions = mysqlTable("menu_item_options", {
 export const orders = mysqlTable("orders", {
   id: int("id").autoincrement().primaryKey(),
   orderNumber: varchar("orderNumber", { length: 32 }).notNull().unique(),
+  publicId: varchar("publicId", { length: 80 }).unique(),
+  snapshot: json("snapshot").$type<KitchenOrder>(),
+  providerOrderId: varchar("providerOrderId", { length: 128 }).unique(),
+  checkoutHash: varchar("checkoutHash", { length: 64 }),
+  showtimeId: int("showtimeId"),
   status: mysqlEnum("status", ["NEW", "PREPARING", "READY", "DELIVERED"]).default("NEW").notNull(),
   source: mysqlEnum("source", ["ONLINE", "OFFLINE_SMS"]).default("ONLINE").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["PENDING", "CONFIRMED", "FAILED"]).default("PENDING").notNull(),
@@ -76,6 +82,13 @@ export const orderItems = mysqlTable("order_items", {
   quantity: int("quantity").notNull(),
   unitPricePaise: int("unitPricePaise").notNull(),
   optionsSnapshot: text("optionsSnapshot"),
+});
+
+// Small durable configuration records; order/payment data remains in its own tables.
+export const storeEntities = mysqlTable("store_entities", {
+  key: varchar("key", { length: 160 }).primaryKey(),
+  kind: varchar("kind", { length: 20 }).notNull(),
+  payload: json("payload").notNull(),
 });
 
 export const payments = mysqlTable("payments", {

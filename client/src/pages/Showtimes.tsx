@@ -17,8 +17,7 @@ export default function Showtimes() {
   return <main className="min-h-screen bg-[#101010] px-4 py-8 text-white sm:px-8">
     <div className="mx-auto max-w-5xl">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div><p className="mb-2 text-xs uppercase tracking-[0.2em] text-orange-300">Live imported schedule</p><h1 className="text-3xl font-semibold">Maharaja Cinema Showtimes</h1><p className="mt-2 flex items-center gap-2 text-sm text-white/60"><MapPin size={15} /> Bhoi Nagar, Vani Vihar, Bhubaneswar</p></div>
-        <a className="rounded-full border border-white/15 px-4 py-2 text-sm text-white/75 hover:bg-white/10" href="https://in.bookmyshow.com/cinemas/BHUB/maharaja-christie-4k-dolby-atmos-64-channel/buytickets/MPDB/20260908" target="_blank" rel="noreferrer">Source page ↗</a>
+        <div><p className="mb-2 text-xs uppercase tracking-[0.2em] text-orange-300">Imported schedule snapshot</p><h1 className="text-3xl font-semibold">Maharaja Cinema Showtimes</h1><p className="mt-2 flex items-center gap-2 text-sm text-white/60"><MapPin size={15} /> Bhoi Nagar, Vani Vihar, Bhubaneswar</p><p className="mt-2 text-sm text-white/60">To order, scan your cinema seat QR. Show timings are scheduled estimates.</p></div>
       </div>
       <div className="mb-8 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
         <button onClick={() => setSelectedDate(undefined)} className={`rounded-xl px-3 py-2 text-sm ${!selectedDate ? "bg-orange-400 text-black" : "text-white/65 hover:bg-white/10"}`}><CalendarDays className="mr-2 inline" size={15} />All dates</button>
@@ -32,8 +31,8 @@ export default function Showtimes() {
 }
 
 function ShowtimeChip({ row }: { row: { id: number; showDate: string; startTime: string; durationMinutes: number; availability: string } }) {
-  const window = trpc.catalog.orderingWindow.useQuery({ showtimeId: row.id });
-  const label = window.data?.state === "NOT_STARTED" ? "Starts 15 min after show" : window.data?.state === "CUTOFF" ? "Ordering closed" : window.data?.state === "COOL_DOWN" ? "15 min kitchen break" : window.data?.state === "FINISHED" ? "Finished" : "Order open";
-  const color = window.data?.state === "OPEN" ? "bg-emerald-400/15 text-emerald-100" : "bg-orange-400/15 text-orange-100";
-  return <a href={`/?showtimeId=${row.id}`} className={`rounded-xl px-3 py-2 text-sm transition hover:brightness-125 ${color}`}><strong>{row.startTime}</strong><span className="ml-2 text-xs opacity-70">{label}</span></a>;
+  const window = trpc.catalog.orderingWindow.useQuery({ showtimeId: row.id }, { refetchInterval: 30_000 });
+  const label = window.isError ? "Status unavailable" : !window.data ? "Checking status…" : !window.data.sourceFresh ? "Schedule needs refresh" : window.data.orderingEnabled ? "Order open via seat QR" : window.data.state === "NOT_STARTED" ? "Starts 15 min after show" : window.data.state === "COOL_DOWN" ? "15 min kitchen break" : window.data.state === "FINISHED" ? "Finished" : "Ordering closed";
+  const color = !window.isError && window.data?.orderingEnabled ? "bg-emerald-400/15 text-emerald-100" : "bg-orange-400/15 text-orange-100";
+  return <div className={`rounded-xl px-3 py-2 text-sm ${color}`}><strong>{row.showDate} · {row.startTime}</strong><span className="ml-2 text-xs opacity-70">{label}</span></div>;
 }

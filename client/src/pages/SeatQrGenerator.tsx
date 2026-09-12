@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from "react";
 import { Download, Printer, QrCode, Search, Copy, Check, RefreshCw, ExternalLink } from "lucide-react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
+import { MAHARAJA_SEAT_LABELS } from "@shared/maharaja-seats";
 
 export interface SeatQrItem {
   id: string;
@@ -23,11 +25,13 @@ const AUDI_PRESETS = [
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 export default function SeatQrGenerator() {
+  const sessions = trpc.admin.sessionLinks.useQuery();
+  const [selectedSessionToken, setSelectedSessionToken] = useState("");
   const [screen, setScreen] = useState("Audi 1 (Dolby Atmos)");
   const [customScreen, setCustomScreen] = useState("");
   const [activeScreenName, setActiveScreenName] = useState("Audi 1");
 
-  const [mode, setMode] = useState<"grid" | "single" | "custom">("grid");
+  const [mode, setMode] = useState<"grid" | "single" | "custom">("custom");
   const [startRow, setStartRow] = useState("A");
   const [endRow, setEndRow] = useState("N");
   const [startNum, setStartNum] = useState(1);
@@ -35,7 +39,7 @@ export default function SeatQrGenerator() {
   const [skipI, setSkipI] = useState(true);
 
   const [singleRow, setSingleRow] = useState("F");
-  const [customSeatsText, setCustomSeatsText] = useState("A1, A2, A3, B1, B2, B3, C1, C2, C3");
+  const [customSeatsText, setCustomSeatsText] = useState(MAHARAJA_SEAT_LABELS.join(", "));
 
   const [cinemaName, setCinemaName] = useState("Maharaja Cinema");
   const [stickerDensity, setStickerDensity] = useState<"standard" | "compact" | "large">("standard");
@@ -83,13 +87,16 @@ export default function SeatQrGenerator() {
   }, [mode, startRow, endRow, startNum, endNum, skipI, singleRow, customSeatsText]);
 
   async function generateQrs() {
+    const selectedSession = sessions.data?.find(s => s.token === selectedSessionToken);
+    if (!selectedSession) { toast.error("Select a valid showtime session first"); return; }
+    if (computedSeats.length > 1000) { toast.error("Maximum 1000 seats per batch"); return; }
     setGenerating(true);
     const origin = window.location.origin;
     const items: SeatQrItem[] = [];
 
     try {
       for (const seat of computedSeats) {
-        const url = `${origin}/?screen=${encodeURIComponent(activeScreenName)}&seat=${encodeURIComponent(seat)}`;
+        const url = `${origin}/?session=${encodeURIComponent(selectedSession.token)}&seat=${encodeURIComponent(seat)}`;
         const qrDataUrl = await QRCode.toDataURL(url, {
           width: 320,
           margin: 1,
@@ -117,9 +124,9 @@ export default function SeatQrGenerator() {
     }
   }
 
-  useEffect(() => {
-    void generateQrs();
-  }, [activeScreenName, computedSeats.length]);
+  // Generate only on explicit action; a session/seat edit must not leave stale
+  // printable stickers from a previous show.
+  useEffect(() => { setQrItems([]); }, [selectedSessionToken, computedSeats, activeScreenName]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return qrItems;
@@ -162,6 +169,13 @@ export default function SeatQrGenerator() {
 
   return (
     <div className="space-y-6">
+      <label className="print:hidden block">Showtime session (required)
+        <select value={selectedSessionToken} onChange={e => { setSelectedSessionToken(e.target.value); const s = sessions.data?.find(s => s.token === e.target.value); if (s) { setCustomScreen(s.screenName); setScreen("custom"); } }}>
+          <option value="">Select a configured showtime</option>
+          {sessions.data?.map(s => <option key={s.token} value={s.token}>{s.screenName} · {s.show.showDate} · {s.show.startTime} · {s.show.movieTitle}</option>)}
+        </select>
+        <p>These stickers are show-specific. Use only theatre-confirmed seats saved in seat configuration; replace stickers for the next show.</p>
+      </label>
       {/* Controls Card - Hidden during Print */}
       <div className="print:hidden rounded-2xl border border-white/10 bg-[#0d0d0c] p-6 shadow-xl space-y-6 text-[#dedad2]">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
@@ -173,7 +187,7 @@ export default function SeatQrGenerator() {
               Cinema Seat QR Code Generator
             </h2>
             <p className="text-sm text-[#85827b] mt-1">
-              Generate instant scannable QR stickers per seat. Scanning instantly locks customer order to that exact Audi & Seat.
+              Generate show-specific QR stickers. The server validates the session, screen and configured seat before checkout.
             </p>
           </div>
 

@@ -119,7 +119,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, string[]> = {
   OWNER_ADMIN: ["kitchen:read", "orders:read", "orders:status", "menu:write", "refunds:write", "staff:write", "analytics:read", "audit:read"],
   ADMIN: ["kitchen:read", "orders:read", "orders:status", "menu:write", "refunds:write", "staff:write", "analytics:read", "audit:read"],
   MANAGER: ["kitchen:read", "orders:read", "orders:status", "menu:write", "analytics:read", "audit:read"],
-  KITCHEN: ["kitchen:read", "orders:status", "menu:write"],
+  KITCHEN: ["kitchen:read", "orders:status"],
   CASHIER: ["orders:read", "orders:status"],
   READ_ONLY: ["orders:read", "analytics:read"],
 };

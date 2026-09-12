@@ -1,5 +1,23 @@
 import type { Request, Response, NextFunction } from "express";
 
+// Express only honours forwarding headers when the operator explicitly
+// configures trusted proxies. Never parse a client-supplied X-Forwarded-For.
+export function getClientIp(req: Request): string {
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+export function safeRedirect(value: unknown, fallback = "/admin"): string {
+  return typeof value === "string" && /^\/(?![\/\\])/.test(value) &&
+    !/[\\\x00-\x20\x7f]/.test(value) ? value : fallback;
+}
+
+export function isLocalDevLoginAllowed(req: Request): boolean {
+  return process.env.NODE_ENV === "development" &&
+    process.env.ENABLE_DEV_LOGIN === "true" &&
+    ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket?.remoteAddress ?? "") &&
+    !req.headers["x-forwarded-for"] && !req.headers["forwarded"];
+}
+
 /**
  * HTTP Security Headers Middleware
  * Implements OWASP recommendations:
@@ -10,12 +28,6 @@ import type { Request, Response, NextFunction } from "express";
  * - Content-Security-Policy (CSP)
  */
 export function securityHeaders(req: Request, res: Response, next: NextFunction) {
-  // Force HTTPS if request comes via HTTP through reverse proxy
-  if (req.headers["x-forwarded-proto"] === "http") {
-    const host = req.headers.host || "cinebite.store";
-    return res.redirect(301, `https://${host}${req.url}`);
-  }
-
   res.removeHeader("X-Powered-By");
   res.removeHeader("Server");
   res.setHeader("X-Frame-Options", "DENY");
@@ -94,8 +106,7 @@ export function createRateLimiter(options: {
 
   return (req: Request, res: Response, next: NextFunction) => {
     // Extract client IP address
-    const forwarded = req.headers["x-forwarded-for"];
-    const ip = (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress) || "unknown";
+    const ip = getClientIp(req);
 
     const now = Date.now();
     let record = ipMap.get(ip);
@@ -121,23 +132,30 @@ export function createRateLimiter(options: {
   };
 }
 
-const actionLimitMap = new Map<string, number[]>();
+const actionLimitMap = new Map<string, { timestamps: number[]; expiresAt: number }>();
+const cleanupActions = setInterval(() => {
+  const now = Date.now();
+  actionLimitMap.forEach((record, key) => {
+    if (record.expiresAt <= now) actionLimitMap.delete(key);
+  });
+}, 60_000);
+cleanupActions.unref();
 
 /**
  * Keyed Sliding-Window Rate Limiter for fine-grained action protection (e.g. order creation, lookups)
  */
 export function checkRateLimit(key: string, maxRequests: number, windowMs: number): boolean {
   const now = Date.now();
-  let timestamps = actionLimitMap.get(key) || [];
+  let timestamps = actionLimitMap.get(key)?.timestamps || [];
   timestamps = timestamps.filter((ts) => now - ts < windowMs);
 
   if (timestamps.length >= maxRequests) {
-    actionLimitMap.set(key, timestamps);
+    actionLimitMap.set(key, { timestamps, expiresAt: timestamps[timestamps.length - 1] + windowMs });
     return false;
   }
 
   timestamps.push(now);
-  actionLimitMap.set(key, timestamps);
+  actionLimitMap.set(key, { timestamps, expiresAt: now + windowMs });
   return true;
 }
 

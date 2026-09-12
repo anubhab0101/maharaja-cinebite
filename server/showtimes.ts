@@ -1,7 +1,9 @@
-import { and, asc, eq } from "drizzle-orm";
-import { showtimes } from "../drizzle/schema";
+import { and, asc, eq, count, max } from "drizzle-orm";
+import { showtimes, orders } from "../drizzle/schema";
 import { getDb } from "./db";
 import { getOrderingWindowState } from "@shared/cinebites";
+import { isFreshImportedShow } from "./showtime-import-validation";
+import { orderingControl } from "./pilot-operations";
 
 const venue = "Maharaja (Christie 4K, DOLBY ATMOS 64 CHANNEL)";
 
@@ -24,6 +26,9 @@ export async function getShowtimeWindow(showtimeId: number) {
   if (!db) return null;
   const row = (await db.select().from(showtimes).where(eq(showtimes.id, showtimeId)).limit(1))[0];
   if (!row) return null;
-  const window = getOrderingWindowState({ showDate: row.showDate, startTime: row.startTime, durationMinutes: row.durationMinutes });
-  return { ...row, ...window, orderingEnabled: window.state === "OPEN" };
+  const [accepted] = await db.select({ total: count(), last: max(orders.paymentConfirmedAt) }).from(orders).where(and(eq(orders.showtimeId, row.id), eq(orders.paymentStatus, "CONFIRMED")));
+  const window = getOrderingWindowState({ showDate: row.showDate, startTime: row.startTime, durationMinutes: row.durationMinutes, acceptedOrders: accepted?.total ?? 0, lastAcceptedAt: accepted?.last ?? undefined });
+  const sourceFresh = isFreshImportedShow(row);
+  const { paused } = await orderingControl();
+  return { ...row, ...window, sourceFresh, paused, orderingEnabled: window.state === "OPEN" && sourceFresh && !paused };
 }

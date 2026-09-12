@@ -8,6 +8,12 @@ let _db: MySql2Database<any> | null = null;
 let _pool: mysql.Pool | null = null;
 const memoryUsers = new Map<string, User>();
 
+export async function closeDatabase() {
+  if (_pool) await _pool.end();
+  _pool = null;
+  _db = null;
+}
+
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
@@ -87,7 +93,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = user.lastSignedIn;
     }
     values.role = assignedRole;
-    updateSet.role = assignedRole;
+    // Activity updates must not replace an existing DB role with an empty
+    // process cache's READ_ONLY default after restart.
+    if (user.role !== undefined || isOwner) updateSet.role = assignedRole;
 
     if (!values.lastSignedIn) {
       values.lastSignedIn = new Date();
@@ -102,13 +110,14 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
-    // Don't rethrow if memory storage succeeded
+    if (ENV.isProduction) throw error;
   }
 }
 
 export async function getUserByOpenId(openId: string): Promise<User | undefined> {
   const db = await getDb();
   if (!db) {
+    if (ENV.isProduction) throw new Error("Database required for authentication");
     return memoryUsers.get(openId);
   }
 
@@ -116,8 +125,9 @@ export async function getUserByOpenId(openId: string): Promise<User | undefined>
     const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
     if (result.length > 0) return result[0];
   } catch (err) {
+    if (ENV.isProduction) throw err;
     console.warn("[Database] Error querying user, falling back to memory:", err);
   }
 
-  return memoryUsers.get(openId);
+  return ENV.isProduction ? undefined : memoryUsers.get(openId);
 }

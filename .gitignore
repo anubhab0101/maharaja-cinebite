@@ -82,6 +82,9 @@ temp/
 *.sqlite
 *.sqlite3
 *.sql
+# Reviewed schema migrations are source code, not database dumps.
+!drizzle/0000_perpetual_eternals.sql
+!drizzle/0005_even_pride.sql
 *.dump
 
 # Archives & Backups
@@ -118,3 +121,6 @@ $RECYCLE.BIN/
 client/public/__manus__/
 .project-config.json
 template.json
+
+# Pilot local data and secret exclusions
+# Databases

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   ArrowRight,
   Check,
@@ -82,13 +82,8 @@ const defaultMenu: MenuItem[] = [
   { id: "blue-curacao-mocktail", name: "Blue Curacao Mocktail", description: "Citrus tropical mocktail with soda", price: 6000, category: "Beverages", tone: "bg-[#10171a] text-[#63aab8] border border-[#17252b]", icon: "drink", available: true },
 ];
 
-const policies = [
-  "I agree to the Terms of Service",
-  "I have read the Privacy Policy",
-  "I understand the Refund & Cancellation Policy",
-  "I accept the Data Retention Policy",
-  "I know how to contact Support",
-];
+import { CHECKOUT_POLICIES, POLICY_VERSION, CUTOFF_NOTICE, checkoutConsentSchema } from "@shared/consent";
+const policies = CHECKOUT_POLICIES;
 
 function money(paise: number) {
   return `₹${(paise / 100).toFixed(0)}`;
@@ -166,7 +161,7 @@ function Header({
           <nav className="hidden items-center gap-7 md:flex">
             <a href="#menu" className="nav-link active">Menu</a>
             <a href="#how-it-works" className="nav-link">How it works</a>
-            <button onClick={() => toast("Support is available from 10:00 to 23:00")} className="nav-link">Support</button>
+            <a href="/support" className="nav-link">Support</a>
           </nav>
         )}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -366,11 +361,10 @@ function CartDrawer({ cart, total, onChange, onClose, onCheckout }: { cart: Cart
 }
 
 function ConsentBlock({ accepted, setAccepted }: { accepted: boolean[]; setAccepted: (next: boolean[]) => void }) {
-  const allChecked = accepted.every(Boolean);
-  const toggleAll = () => setAccepted(accepted.map(() => !allChecked));
 
   return (
     <div className="consent-block">
+      <div role="note" className="mb-4 rounded-xl border-2 border-amber-400 bg-amber-400/15 p-4 text-amber-100"><strong className="block text-lg">Important: last 30 minutes — no new orders</strong><p>{CUTOFF_NOTICE}</p><p className="mt-2">No change-of-mind cancellations or refunds once an order is placed. This does not affect remedies for non-delivery, faulty food, duplicate charges or other rights required by law.</p></div>
       <div className="consent-heading flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="consent-icon"><ShieldCheck size={16} /></div>
@@ -379,33 +373,20 @@ function ConsentBlock({ accepted, setAccepted }: { accepted: boolean[]; setAccep
             <p>Standard cinema in-seat delivery rules.</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={toggleAll}
-          className="text-xs text-orange-400 hover:text-orange-300 font-medium underline"
-        >
-          {allChecked ? "Uncheck all" : "Accept all"}
-        </button>
       </div>
       <div className="consent-list">
         {policies.map((policy, index) => (
-          <label key={policy} className="consent-row cursor-pointer select-none">
-            <button
-              type="button"
-              aria-label={policy}
-              onClick={() => setAccepted(accepted.map((value, i) => (i === index ? !value : value)))}
-              className={`check-box ${accepted[index] ? "checked" : ""}`}
-            >
-              {accepted[index] && <Check size={13} strokeWidth={3} />}
-            </button>
-            <span onClick={() => setAccepted(accepted.map((value, i) => (i === index ? !value : value)))}>
-              {policy}
-            </span>
-          </label>
+          <div key={policy.key} className="consent-row">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" checked={accepted[index] ?? false} onChange={event => setAccepted(accepted.map((value, i) => i === index ? event.target.checked : value))} className="mt-1 accent-orange-400" />
+              <span>{policy.text}</span>
+            </label>
+            <a href={policy.href} target="_blank" rel="noreferrer" className="underline text-orange-300">Read policy (new tab)</a>
+          </div>
         ))}
       </div>
       <div className="consent-note">
-        <Info size={14} /> Fresh food preparation begins upon payment confirmation. Exceptional refunds handled by Admin.
+        <Info size={14} /> Food preparation begins after payment confirmation. No change-of-mind refunds after ordering; statutory remedies remain available.
       </div>
     </div>
   );
@@ -607,13 +588,14 @@ function Tracking({
 
   const orderData = trackQuery.data;
   const currentStatus = orderData?.status || "NEW";
+  const isPaid = orderData?.paymentStatus === "CONFIRMED";
 
   const isPreparing = currentStatus === "PREPARING" || currentStatus === "READY" || currentStatus === "DELIVERED";
   const isReady = currentStatus === "READY" || currentStatus === "DELIVERED";
   const isDelivered = currentStatus === "DELIVERED";
 
   const steps = [
-    { title: "Payment confirmed", detail: "Your order is safely in the queue", done: true },
+    { title: isPaid ? "Payment confirmed" : "Awaiting payment confirmation", detail: isPaid ? "Your order is safely in the queue" : "If money was deducted, do not pay again. Keep this order number and ask cinema staff for help.", done: isPaid },
     { title: "Preparing your order", detail: "The kitchen is on it", done: isPreparing },
     { title: `On its way to ${orderData?.screen || screen} • Seat ${orderData?.seat || seat}`, detail: "A crew member will verify your name + last 4 digits", done: isReady },
     { title: "Delivered", detail: "Enjoy the show!", done: isDelivered },
@@ -625,16 +607,17 @@ function Tracking({
     <main className="tracking-page">
       <div className="tracking-hero">
         <div className="success-orbit"><div className="success-core"><Check size={28} strokeWidth={2.5} /></div></div>
-        <p className="eyebrow accent-eyebrow">Order confirmed</p>
-        <h1>Your snacks are<br /><em>in the making.</em></h1>
-        <p>Order <strong>#{orderNumber}</strong> is heading to <strong>{orderData?.screen || screen} • Seat {orderData?.seat || seat}</strong>.</p>
+        <p className="eyebrow accent-eyebrow">{isPaid ? "Order confirmed" : "Payment confirmation pending"}</p>
+        <h1>{isPaid ? "Your snacks are on their way." : "Checking your payment."}</h1>
+        <p>Order <strong>#{orderNumber}</strong> • <strong>{orderData?.screen || screen} • Seat {orderData?.seat || seat}</strong>.</p>
+        {trackQuery.isError && <p role="alert">Cannot refresh status. Please retry or <a href="/support">view support information</a>.</p>}
       </div>
 
       <section className="tracking-card">
         <div className="tracking-card-header">
           <div>
             <p className="eyebrow">Live order status</p>
-            <h2>{isDelivered ? "Delivered to your seat!" : `Arriving in about ${estimatedMinutes} min`}</h2>
+            <h2>{!isPaid ? "Not yet sent to kitchen" : isDelivered ? "Delivered to your seat!" : "Kitchen status (delivery time may vary)"}</h2>
           </div>
           <div className="pulse-dot" />
         </div>
@@ -740,7 +723,7 @@ function ActiveOrderBanner({
   const isReady = status === "READY";
   const isPreparing = status === "PREPARING";
 
-  const statusLabel = isDelivered
+  const statusLabel = trackQuery.data?.paymentStatus !== "CONFIRMED" ? "Payment confirmation pending" : isDelivered
     ? "Delivered to your seat!"
     : isReady
     ? "On its way to your seat!"
@@ -805,14 +788,15 @@ function FindOrderModal({
 }) {
   const [phone, setPhone] = useState("");
   const history = getOrderHistory();
+  const [lookupOrderNumber, setLookupOrderNumber] = useState("");
 
   const cleanDigits = phone.replace(/\D/g, "");
   const normalizedPhone = cleanDigits.length === 12 && cleanDigits.startsWith("91") ? cleanDigits.slice(2) : cleanDigits;
-  const isSearchable = normalizedPhone.length === 10;
+  const isSearchable = normalizedPhone.length === 10 && lookupOrderNumber.trim().length >= 3;
 
   const lookupQuery = trpc.order.lookupByPhone.useQuery(
-    { phone: normalizedPhone },
-    { enabled: isSearchable }
+    { phone: normalizedPhone, orderNumber: lookupOrderNumber.trim() },
+    { enabled: isOpen && isSearchable, retry: false }
   );
 
   if (!isOpen) return null;
@@ -827,7 +811,7 @@ function FindOrderModal({
           <div>
             <h3 className="text-lg font-bold text-[#dedad2]">Track Your Cinema Order</h3>
             <p className="text-xs text-[#85827b] mt-0.5">
-              Accidentally closed your order screen? Enter your 10-digit mobile number to restore it.
+              Restore a recent order below, or enter its order number and mobile number.
             </p>
           </div>
           <button onClick={onClose} className="p-1 text-white/50 hover:text-white cursor-pointer">
@@ -836,6 +820,8 @@ function FindOrderModal({
         </div>
 
         <div className="mb-4">
+          <label className="text-xs text-white/70 block mb-1.5" htmlFor="lookup-order-number">Order number</label>
+          <input id="lookup-order-number" className="mb-3 w-full rounded-lg border border-white/20 bg-transparent p-2 text-white" value={lookupOrderNumber} onChange={e => setLookupOrderNumber(e.target.value.toUpperCase())} placeholder="CB-..." maxLength={32} />
           <label className="text-xs text-white/70 block mb-1.5">Indian Mobile Number</label>
           <div className="phone-input">
             <span>+91</span>
@@ -939,10 +925,13 @@ export default function Home() {
   const [active, setActive] = useState<Category>("Popular");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [accepted, setAccepted] = useState(policies.map(() => true));
+  const [accepted, setAccepted] = useState(policies.map(() => false));
   const [activeOrder, setActiveOrder] = useState<SavedOrder | null>(null);
   const [lookupOpen, setLookupOpen] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const checkoutBusy = useRef(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const checkoutRequest = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const sessionToken = params.get("session") || "";
@@ -980,8 +969,10 @@ export default function Home() {
   }, []);
   const session = trpc.catalog.session.useQuery({ token: sessionToken || "invalid-session-token" }, { enabled: sessionToken.length > 0 });
   const showtimeId = session.data?.show.id ?? (Number(params.get("showtimeId")) || 0);
-  const orderingWindow = trpc.catalog.orderingWindow.useQuery({ showtimeId }, { enabled: showtimeId > 0 });
-  const orderingOpen = showtimeId === 0 || orderingWindow.data?.orderingEnabled === true;
+  const orderingWindow = trpc.catalog.orderingWindow.useQuery({ showtimeId }, { enabled: showtimeId > 0, refetchInterval: 15000 });
+  const orderingOpen = (!sessionToken || Boolean(session.data)) && (showtimeId > 0
+    ? orderingWindow.data?.orderingEnabled === true
+    : import.meta.env.DEV);
 
   // Real backend menu catalog sync
   const catalogQuery = trpc.catalog.menu.useQuery();
@@ -1075,11 +1066,19 @@ export default function Home() {
   }
 
   async function handleCompletePayment(details: { name: string; phone: string; seat: string; screen: string }) {
+    if (checkoutBusy.current) return;
+    checkoutBusy.current = true;
+    setPaymentBusy(true);
+    const releaseCheckout = () => { checkoutBusy.current = false; setPaymentBusy(false); };
     try {
       const orderItems = cart.map((item) => ({
         itemId: item.id,
         quantity: item.quantity,
       }));
+      const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken });
+      if (checkoutRequest.current?.fingerprint !== fingerprint) {
+        checkoutRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
 
       // 1. Create order in PENDING payment status on server
       const res = await createOrderMutation.mutateAsync({
@@ -1089,10 +1088,25 @@ export default function Home() {
         phone: details.phone,
         items: orderItems,
         showtimeId: showtimeId > 0 ? showtimeId : undefined,
+        sessionToken: sessionToken || undefined,
+        idempotencyKey: checkoutRequest.current.key,
+        consent: checkoutConsentSchema.parse({ policyVersion: POLICY_VERSION, terms: accepted[0], privacy: accepted[1], refund: accepted[2], cutoff: accepted[3] }),
       });
+      // Persist tracking before opening the gateway; the webhook can recover a
+      // captured payment even if this browser closes or loses connectivity.
+      saveActiveOrder({ orderNumber: res.order.orderNumber, phoneLast4: details.phone.slice(-4), screen: res.order.screen, seat: res.order.seat, customerName: details.name, totalPaise: res.order.totalPaise, createdAt: new Date().toISOString() });
 
       // 2. If Razorpay Live credentials are configured and Razorpay SDK is loaded, open popup
+      if (res.order.paymentStatus === "CONFIRMED") {
+        finalizeOrderSuccess(res.order, details.name, details.phone);
+        checkoutRequest.current = null;
+        releaseCheckout();
+        return;
+      }
       const hasRazorpay = typeof (window as any).Razorpay === "function";
+      if (!res.isLiveGateway || !hasRazorpay || !res.paymentIntent?.providerOrderId) {
+        throw new Error("Secure checkout could not load. Please reload and try again.");
+      }
       if (res.isLiveGateway && hasRazorpay && res.paymentIntent?.providerOrderId) {
         const options = {
           key: res.paymentIntent.keyId,
@@ -1119,16 +1133,19 @@ export default function Home() {
               });
 
               finalizeOrderSuccess(res.order, details.name, details.phone);
+              checkoutRequest.current = null;
             } catch (verifErr: any) {
               toast.error("Payment verification failed", {
                 description: verifErr.message || "Untrusted payment signature.",
               });
-            }
+            } finally { releaseCheckout(); }
           },
           modal: {
             ondismiss: () => {
-              toast.error("Payment cancelled", {
-                description: "Your order was not placed. You have not been charged.",
+              releaseCheckout();
+              toast.error("Payment window closed", {
+                description: "Payment confirmation is pending. If money was deducted, keep your payment reference and contact support.",
+                action: { label: "Payment help", onClick: () => window.open("/payment-failed", "_blank", "noopener,noreferrer") },
               });
             },
           },
@@ -1139,17 +1156,8 @@ export default function Home() {
         return;
       }
 
-      // 4. Test / Mock Mode Fallback (when Razorpay credentials are not yet added in .env)
-      // Auto-confirms test order so theater testing works smoothly before adding live credentials
-      await confirmPaymentMutation.mutateAsync({
-        orderId: res.order.id,
-        providerOrderId: res.paymentIntent.providerOrderId,
-        providerPaymentId: `pay_mock_${Date.now()}`,
-        signature: "mock_test_signature",
-      });
-
-      finalizeOrderSuccess(res.order, details.name, details.phone);
     } catch (err: any) {
+      releaseCheckout();
       let friendlyMessage = "An error occurred while creating your order.";
       try {
         const parsed = JSON.parse(err.message);
@@ -1170,7 +1178,7 @@ export default function Home() {
     }
   }
 
-  const detectedScreen = paramScreen || session.data?.screenName || "Maharaja Screen 01";
+  const detectedScreen = session.data?.screenName || orderingWindow.data?.screenName || paramScreen || "Maharaja Screen 01";
   const detectedMovie = session.data?.show.movieTitle;
 
   return (
@@ -1200,14 +1208,16 @@ export default function Home() {
               <div className="availability">
                 <span className="availability-dot" />{" "}
                 {showtimeId && orderingWindow.data
-                  ? orderingWindow.data.state === "OPEN"
+                  ? orderingWindow.data.paused ? "New orders paused by cinema"
+                    : !orderingWindow.data.sourceFresh ? "Schedule needs refresh"
+                    : orderingWindow.data.state === "OPEN"
                     ? "Ordering open"
                     : orderingWindow.data.state === "COOL_DOWN"
                     ? "15 min kitchen break"
                     : orderingWindow.data.state === "CUTOFF"
                     ? "Ordering closed"
                     : "Ordering starts 15 min after showtime"
-                  : "Ordering open"}
+                  : orderingOpen ? "Ordering open" : "Select a valid showtime to order"}
               </div>
             </div>
             <CategoryTabs active={active} setActive={setActive} />
@@ -1238,7 +1248,7 @@ export default function Home() {
             <BrandMark />
             <div className="footer-copy">
               <span>CineBites Maharaja Cinema • Instant In-Seat Cinema Service</span>
-              <button onClick={() => toast("Support contact: support@cinebites.in | 1800-CINEMA")}>Need help?</button>
+              <a href="/support">Need help? Cinema support information</a>
             </div>
             <span className="footer-safe">
               <ShieldCheck size={13} /> Privacy-safe by design
@@ -1254,7 +1264,7 @@ export default function Home() {
           setAccepted={setAccepted}
           initialScreen={detectedScreen}
           initialSeat={paramSeat}
-          isSubmitting={createOrderMutation.isPending}
+          isSubmitting={paymentBusy || createOrderMutation.isPending}
           onBack={() => setView("menu")}
           onPaid={handleCompletePayment}
         />

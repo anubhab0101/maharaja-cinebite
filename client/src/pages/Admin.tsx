@@ -37,6 +37,7 @@ import ShiftSummary from "@/pages/ShiftSummary";
 import StaffManagement from "@/pages/StaffManagement";
 import SessionLinks from "@/pages/SessionLinks";
 import SeatQrGenerator from "@/pages/SeatQrGenerator";
+import { PilotOverview, PilotMenuEditor, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 
 type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "sessions" | "seatQrs" | "audit";
 
@@ -183,7 +184,7 @@ export default function Admin() {
           </div>
         </header>
 
-        {tab === "overview" && <Overview stats={stats.data} orders={orders.data} />}
+        {tab === "overview" && <PilotOverview />}
         {tab === "shift" && <ShiftSummary />}
         {tab === "orders" && (
           <OrdersTable
@@ -198,16 +199,17 @@ export default function Admin() {
           />
         )}
         {tab === "menu" && (
+          <><PilotMenuEditor />
           <MenuManager
             items={menu.data ?? []}
             orders={orders.data}
             onToggle={(id, available) => availability.mutate({ id, available })}
-          />
+          /></>
         )}
-        {tab === "refunds" && <Refunds />}
+        {tab === "refunds" && <PilotRefunds />}
         {tab === "staff" && <StaffManagement />}
         {tab === "sessions" && <SessionLinks />}
-        {tab === "seatQrs" && <SeatQrGenerator />}
+        {tab === "seatQrs" && <><PilotSeatSetup /><SeatQrGenerator /></>}
         {tab === "audit" && <Audit logs={audit.data ?? []} />}
       </main>
     </div>
@@ -1171,4 +1173,3 @@ function Audit({ logs }: { logs: { id: string; action: string; detail: string; a
     </section>
   );
 }
-

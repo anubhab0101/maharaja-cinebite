@@ -1,39 +1,43 @@
 import crypto from "crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME } from "@shared/const";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 import { ENV } from "./env";
 import { listStaff } from "../cinebites-store";
 import { normalizeStaffRole, StaffRole } from "@shared/cinebites";
+import { isLocalDevLoginAllowed, safeRedirect } from "./security";
+import { oauthCallbackSchema, oauthStateSchema, googleTokenSchema, googleProfileSchema, GOOGLE_REQUEST_TIMEOUT_MS } from "./oauth-validation";
+
+const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 
 const GOOGLE_STATE_COOKIE = "g_oauth_state";
 
-function getPublicBaseUrl(req: Request): string {
-  if (ENV.publicAppUrl && !ENV.publicAppUrl.includes("localhost")) {
-    return ENV.publicAppUrl.replace(/\/+$/, "");
-  }
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "localhost:3000";
-  return `${proto}://${host}`;
+function getPublicBaseUrl(_req: Request): string {
+  return new URL(ENV.publicAppUrl).origin;
 }
 
 export function registerOAuthRoutes(app: Express) {
+  app.use("/api/auth", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    next();
+  });
+  const failLogin = (res: Response) => res.redirect(302, "/login?error=sign_in_failed");
   /**
    * Initiate Google OAuth 2.0 Login
    * Generates secure cryptographic CSRF nonce and redirects to Google
    */
   app.get("/api/auth/google", (req: Request, res: Response) => {
     if (!ENV.googleClientId) {
-      res.status(500).send("Google Client ID is not configured on the server.");
+      failLogin(res);
       return;
     }
 
-    const redirectTarget = typeof req.query.redirect === "string" && req.query.redirect.startsWith("/")
-      ? req.query.redirect
-      : "/admin";
+    const redirectTarget = typeof req.query.redirect === "string" && req.query.redirect.length <= 2048
+      ? safeRedirect(req.query.redirect) : "/admin";
 
     const nonce = crypto.randomBytes(24).toString("hex");
     const statePayload = JSON.stringify({ nonce, redirect: redirectTarget });
@@ -66,26 +70,19 @@ export function registerOAuthRoutes(app: Express) {
    * Validates CSRF nonce, exchanges code for Google tokens, checks authorization, and mints session
    */
   app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
-    const code = typeof req.query.code === "string" ? req.query.code : null;
-    const state = typeof req.query.state === "string" ? req.query.state : null;
-    const errorParam = typeof req.query.error === "string" ? req.query.error : null;
-
-    if (errorParam) {
-      res.redirect(302, `/login?error=${encodeURIComponent(errorParam)}`);
+    const callback = oauthCallbackSchema.safeParse(req.query);
+    if (req.query.error !== undefined || !callback.success) {
+      failLogin(res);
       return;
     }
-
-    if (!code || !state) {
-      res.status(400).redirect("/login?error=missing_code_or_state");
-      return;
-    }
+    const { code, state } = callback.data;
 
     // 1. Validate CSRF state nonce
     let decodedState: { nonce?: string; redirect?: string } = {};
     try {
-      decodedState = JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+      decodedState = oauthStateSchema.parse(JSON.parse(Buffer.from(state, "base64url").toString("utf8")));
     } catch {
-      res.status(403).redirect("/login?error=invalid_state_format");
+      failLogin(res);
       return;
     }
 
@@ -94,7 +91,7 @@ export function registerOAuthRoutes(app: Express) {
     const expectedNonce = parsedCookies[GOOGLE_STATE_COOKIE];
 
     if (!decodedState.nonce || !expectedNonce || decodedState.nonce !== expectedNonce) {
-      res.status(403).redirect("/login?error=csrf_validation_failed");
+      failLogin(res);
       return;
     }
 
@@ -106,6 +103,7 @@ export function registerOAuthRoutes(app: Express) {
 
       // 2. Exchange authorization code for Google access token
       const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
+        signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -118,40 +116,25 @@ export function registerOAuthRoutes(app: Express) {
       });
 
       if (!tokenResp.ok) {
-        const errText = await tokenResp.text().catch(() => "");
-        console.error("[Google OAuth] Token exchange failed:", tokenResp.status, errText);
-        res.status(502).redirect("/login?error=token_exchange_failed");
+        console.error("[Google OAuth] Token exchange failed:", tokenResp.status);
+        failLogin(res);
         return;
       }
 
-      const tokenData = (await tokenResp.json()) as { access_token?: string; id_token?: string };
-      if (!tokenData.access_token) {
-        res.status(502).redirect("/login?error=missing_access_token");
-        return;
-      }
+      const tokenData = googleTokenSchema.parse(await tokenResp.json());
 
       // 3. Fetch verified user profile from Google
       const userResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
 
       if (!userResp.ok) {
-        res.status(502).redirect("/login?error=userinfo_fetch_failed");
+        failLogin(res);
         return;
       }
 
-      const userInfo = (await userResp.json()) as {
-        sub: string;
-        email?: string;
-        name?: string;
-        picture?: string;
-        email_verified?: boolean;
-      };
-
-      if (!userInfo.sub || !userInfo.email) {
-        res.status(400).redirect("/login?error=missing_user_email");
-        return;
-      }
+      const userInfo = googleProfileSchema.parse(await userResp.json());
 
       const email = userInfo.email.toLowerCase().trim();
       const openId = `google-${userInfo.sub}`;
@@ -165,38 +148,18 @@ export function registerOAuthRoutes(app: Express) {
         role = "OWNER_ADMIN";
         isAuthorized = true;
       } else {
-        const staffList = listStaff();
+        const staffList = await listStaff();
         const staffMatch = staffList.find((s) => s.email.toLowerCase() === email);
-        if (staffMatch) {
+        if (staffMatch && staffMatch.status !== "SUSPENDED") {
           role = normalizeStaffRole(staffMatch.role);
           isAuthorized = true;
-        } else {
-          // Direct database fallback check across restarts
-          try {
-            const database = await db.getDb();
-            if (database) {
-              const { users } = await import("../../drizzle/schema");
-              const { eq } = await import("drizzle-orm");
-              const [dbUser] = await database
-                .select()
-                .from(users)
-                .where(eq(users.email, email))
-                .limit(1);
-              if (dbUser && dbUser.role && dbUser.role !== "READ_ONLY") {
-                role = normalizeStaffRole(dbUser.role);
-                isAuthorized = true;
-              }
-            }
-          } catch (err) {
-            console.warn("[Google OAuth] DB staff lookup fallback notice:", err);
-          }
         }
       }
 
       // If not authorized as cinema staff, reject and redirect with clear error
       if (!isAuthorized) {
-        console.warn(`[Auth Guard] Unauthorized Google sign-in attempt by: ${email}`);
-        res.redirect(302, `/login?error=unauthorized_account&email=${encodeURIComponent(email)}`);
+        console.warn("[Auth Guard] Google sign-in rejected: account not authorized");
+        failLogin(res);
         return;
       }
 
@@ -208,30 +171,27 @@ export function registerOAuthRoutes(app: Express) {
         loginMethod: "google",
         role,
         lastSignedIn: new Date(),
-      }).catch((e) => console.warn("[Auth] DB upsert warning:", e));
+      });
 
       // 6. Mint secure signed JWT session token
       const sessionToken = await sdk.createSessionToken(openId, {
         name: userInfo.name || email.split("@")[0],
         email,
         role,
-        expiresInMs: ONE_YEAR_MS,
+        expiresInMs: SESSION_DURATION_MS,
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_DURATION_MS });
 
       // Redirect user to destination (/admin or /kitchen)
-      const destination = decodedState.redirect && decodedState.redirect.startsWith("/")
-        ? decodedState.redirect
-        : role === "KITCHEN"
-        ? "/kitchen"
-        : "/admin";
+      const destination = safeRedirect(decodedState.redirect, role === "KITCHEN" ? "/kitchen" : "/admin");
 
       res.redirect(302, destination);
-    } catch (err) {
-      console.error("[Google OAuth] Unexpected error:", err);
-      res.status(500).redirect("/login?error=internal_auth_error");
+    } catch {
+      // Provider responses, validation errors and network exceptions may contain personal data/tokens.
+      console.error("[Google OAuth] Sign-in failed: provider, validation or persistence error");
+      failLogin(res);
     }
   });
 
@@ -240,14 +200,13 @@ export function registerOAuthRoutes(app: Express) {
    */
   app.get("/api/auth/dev-login", async (req: Request, res: Response) => {
     // 1. Hard block if in production
-    if (ENV.isProduction || process.env.NODE_ENV === "production") {
+    if (!isLocalDevLoginAllowed(req)) {
       res.status(404).send("Not Found");
       return;
     }
 
     // 2. Hard block if requested from external IP (only allow loopback/localhost)
-    const forwarded = req.headers["x-forwarded-for"];
-    const clientIp = (typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.socket.remoteAddress) || "";
+    const clientIp = req.socket.remoteAddress || "";
     const isLoopback = clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "::ffff:127.0.0.1" || clientIp === "localhost";
 
     if (!isLoopback) {
@@ -256,10 +215,10 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
 
-    const targetRole = (req.query.role as string) || "OWNER_ADMIN";
-    const openId = `google-owner-${ENV.ownerEmail}`;
-    const name = "Anubhab Mohapatra";
-    const email = ENV.ownerEmail;
+    const targetRole = normalizeStaffRole(req.query.role || "OWNER_ADMIN");
+    const openId = `dev-${targetRole}`;
+    const name = "Local Developer";
+    const email = `dev-${targetRole.toLowerCase()}@localhost.invalid`;
 
     await db.upsertUser({
       openId,
@@ -274,17 +233,13 @@ export function registerOAuthRoutes(app: Express) {
       name,
       email,
       role: targetRole,
-      expiresInMs: ONE_YEAR_MS,
+      expiresInMs: SESSION_DURATION_MS,
     });
 
     const cookieOptions = getSessionCookieOptions(req);
-    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_DURATION_MS });
 
-    const destination = req.query.redirect && String(req.query.redirect).startsWith("/")
-      ? String(req.query.redirect)
-      : targetRole === "KITCHEN"
-      ? "/kitchen"
-      : "/admin";
+    const destination = safeRedirect(req.query.redirect, targetRole === "KITCHEN" ? "/kitchen" : "/admin");
 
     res.redirect(302, destination);
   });

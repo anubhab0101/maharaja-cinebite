@@ -4,7 +4,15 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 
-const t = initTRPC.context<TrpcContext>().create({ transformer: superjson });
+const t = initTRPC.context<TrpcContext>().create({
+  transformer: superjson,
+  errorFormatter({ shape }) {
+    if (process.env.NODE_ENV === "production" && shape.data.code === "INTERNAL_SERVER_ERROR") {
+      return { ...shape, message: "Operation could not be completed. Retry or contact support with your order number.", data: { ...shape.data, stack: undefined } };
+    }
+    return shape;
+  },
+});
 export const router = t.router;
 export const publicProcedure = t.procedure;
 

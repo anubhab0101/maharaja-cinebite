@@ -14,9 +14,16 @@ export type ConfirmPaymentInput = {
   signature: string;
 };
 
+export type VerifyPaymentInput = ConfirmPaymentInput & {
+  amountPaise: number;
+  receipt: string;
+};
+
 export interface PaymentProvider {
   createIntent(input: { amountPaise: number; receipt: string }): Promise<PaymentIntent>;
   verifySignature(input: ConfirmPaymentInput): boolean;
+  verifyPayment(input: VerifyPaymentInput): Promise<boolean>;
+  verifyCapturedPayment(input: VerifyPaymentInput): Promise<boolean>;
   refund(input: { providerPaymentId: string; amountPaise: number; reason: string }): Promise<{ refundId: string; status: "PROCESSING" | "SUCCEEDED" }>;
 }
 
@@ -66,6 +73,7 @@ export class RazorpayLiveProvider implements PaymentProvider {
   async createIntent(input: { amountPaise: number; receipt: string }): Promise<PaymentIntent> {
     const authHeader = `Basic ${Buffer.from(`${this.keyId}:${this.keySecret}`).toString("base64")}`;
     const response = await fetch("https://api.razorpay.com/v1/orders", {
+      signal: AbortSignal.timeout(15000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -85,6 +93,9 @@ export class RazorpayLiveProvider implements PaymentProvider {
     }
 
     const data = (await response.json()) as { id: string; amount: number; currency: "INR" };
+    if (!data.id || data.amount !== input.amountPaise || data.currency !== "INR") {
+      throw new Error("Payment gateway returned an invalid order");
+    }
     return {
       provider: "razorpay",
       providerOrderId: data.id,
@@ -101,6 +112,29 @@ export class RazorpayLiveProvider implements PaymentProvider {
       input.signature,
       this.keySecret
     );
+  }
+
+  async verifyPayment(input: VerifyPaymentInput): Promise<boolean> {
+    return this.verifySignature(input) && this.verifyCapturedPayment(input);
+  }
+
+  async verifyCapturedPayment(input: VerifyPaymentInput): Promise<boolean> {
+    if (!/^pay_[A-Za-z0-9]+$/.test(input.providerPaymentId) ||
+      !/^order_[A-Za-z0-9]+$/.test(input.providerOrderId)) return false;
+    const headers = { Authorization: `Basic ${Buffer.from(`${this.keyId}:${this.keySecret}`).toString("base64")}` };
+    const [paymentResponse, orderResponse] = await Promise.all([
+      fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(input.providerPaymentId)}`, { headers, signal: AbortSignal.timeout(15000) }),
+      fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(input.providerOrderId)}`, { headers, signal: AbortSignal.timeout(15000) }),
+    ]);
+    if (!paymentResponse.ok || !orderResponse.ok) throw new Error("Payment verification is temporarily unavailable; retry verification");
+    const payment = await paymentResponse.json();
+    const order = await orderResponse.json();
+    // All values come from the authenticated provider API. A signed payment for
+    // another receipt, another amount, or an authorization without capture fails.
+    return payment.id === input.providerPaymentId && payment.order_id === input.providerOrderId &&
+      payment.status === "captured" && payment.amount === input.amountPaise && payment.currency === "INR" &&
+      order.id === input.providerOrderId && order.receipt === input.receipt &&
+      order.amount === input.amountPaise && order.currency === "INR" && order.status === "paid";
   }
 
   async refund(input: { providerPaymentId: string; amountPaise: number; reason: string }) {
@@ -134,6 +168,7 @@ export class RazorpayLiveProvider implements PaymentProvider {
  * Razorpay Test & Development Mock Provider
  */
 export class RazorpayTestProvider implements PaymentProvider {
+  async verifyCapturedPayment(_input: VerifyPaymentInput): Promise<boolean> { return false; }
   async createIntent(input: { amountPaise: number; receipt: string }): Promise<PaymentIntent> {
     return {
       provider: "razorpay",
@@ -145,12 +180,12 @@ export class RazorpayTestProvider implements PaymentProvider {
   }
 
   verifySignature(input: ConfirmPaymentInput): boolean {
-    // In test mode, accept matching mock order signatures or test prefix
-    if (!input.providerOrderId || !input.providerPaymentId) return false;
-    if (input.providerOrderId.startsWith("order_mock_") || input.providerPaymentId.startsWith("pay_mock_")) {
-      return true;
-    }
-    return false;
+    return process.env.NODE_ENV === "test" && input.providerOrderId.startsWith("order_mock_") &&
+      input.providerPaymentId.startsWith("pay_mock_") && input.signature === "mock_test_signature";
+  }
+
+  async verifyPayment(input: VerifyPaymentInput): Promise<boolean> {
+    return this.verifySignature(input) && input.providerOrderId === `order_mock_${input.receipt}`;
   }
 
   async refund(input: { providerPaymentId: string; amountPaise: number; reason: string }) {
@@ -179,7 +214,8 @@ export function getPaymentProvider(): PaymentProvider {
     throw new Error("Razorpay production credentials are required in production");
   }
 
-  return new RazorpayTestProvider();
+  if (process.env.NODE_ENV === "test") return new RazorpayTestProvider();
+  throw new Error("Configure Razorpay test or live credentials to accept payments");
 }
 
 export function isLivePaymentGatewayConfigured(): boolean {
