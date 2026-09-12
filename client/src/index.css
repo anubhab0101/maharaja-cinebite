@@ -20,6 +20,27 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
+/* VengeanceUI-inspired shine/ripple, adapted to CineBites and reduced motion. */
+.cine-animated-button { position: relative; overflow: hidden; isolation: isolate; }
+.cine-animated-button:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 4px; }
+.cine-button-shine { pointer-events: none; position: absolute; inset: 0; border-radius: inherit; opacity: 0; background: linear-gradient(-75deg, transparent 30%, rgba(255,255,255,.22) 50%, transparent 70%); background-size: 250% 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  .cine-animated-button { transition: transform .18s ease; }
+  .cine-animated-button:enabled:is(:hover, :focus-visible) { transform: scale(1.01); }
+  .cine-animated-button:enabled:active { transform: scale(.97); }
+  .cine-animated-button:enabled:is(:hover, :focus-visible) .cine-button-shine { animation: cine-shine .8s ease-out both; }
+}
+@keyframes cine-shine { 0% { background-position: 100% 0; opacity: 0; } 35% { opacity: 1; } 100% { background-position: 0% 0; opacity: 0; } }
+.cine-ascii-ripple { position: relative; display: inline-block; white-space: nowrap; }
+.cine-ascii-size { visibility: hidden; }
+.cine-ascii-visual { position: absolute; inset: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  button.cine-animated-button { transition: none; }
+  button.cine-animated-button:is(:hover, :focus-visible, :active) { transform: none; }
+  .cine-button-shine { animation: none; }
+}
+button.cine-animated-button:disabled { transform: none; }
+
 .app-shell { min-height: 100vh; overflow: hidden; background: #050505; }
 .mx-auto { margin-left: auto; margin-right: auto; }
 
@@ -416,4 +437,3 @@ button:disabled { cursor: not-allowed; }
   background: #62ac79;
   box-shadow: 0 0 0 4px rgba(98, 172, 121, 0.25);
 }
-

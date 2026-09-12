@@ -22,6 +22,8 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import AnimatedButton from "@/components/ui/animated-button";
+import AsciiGlitchRipple from "@/components/ui/ascii-glitch-ripple";
 import { trpc } from "@/lib/trpc";
 import {
   SavedOrder,
@@ -220,7 +222,7 @@ function Hero() {
       <div className="hero-glow" />
       <div className="relative z-10 max-w-3xl">
         <p className="eyebrow accent-eyebrow"><Sparkles size={13} /> Your movie. Your seat. Your snacks.</p>
-        <h1>Good films deserve<br /><em>great food.</em></h1>
+        <h1>Good films deserve<br /><em><AsciiGlitchRipple>great food.</AsciiGlitchRipple></em></h1>
         <p className="hero-copy">Order from your seat and we&apos;ll bring it to you before the best part.</p>
       </div>
       <div className="hero-scribble" aria-hidden="true"><span>made for the</span><strong>big screen</strong><i /></div>
@@ -283,9 +285,9 @@ function MenuCard({
               </button>
             </div>
           ) : (
-            <button disabled={!orderingOpen} className="add-button" onClick={onAdd}>
+            <AnimatedButton disabled={!orderingOpen} className="add-button" onClick={onAdd}>
               <Plus size={15} /> {orderingOpen ? "Add" : "Closed"}
-            </button>
+            </AnimatedButton>
           )}
         </div>
       </div>
@@ -345,12 +347,12 @@ function CartDrawer({ cart, total, onChange, onClose, onCheckout }: { cart: Cart
                   <strong className="text-lg font-mono text-[#dedad2]">{money(finalTotal)}</strong>
                 </div>
               </div>
-              <button
+              <AnimatedButton
                 onClick={() => { toast.dismiss(); onCheckout(); }}
                 className="primary-button w-full relative z-10 cursor-pointer"
               >
                 Review & pay {money(finalTotal)} <ArrowRight size={17} />
-              </button>
+              </AnimatedButton>
               <p className="secure-note"><ShieldCheck size={13} /> Payment is secured by Razorpay</p>
             </div>
           </>
