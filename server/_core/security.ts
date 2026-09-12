@@ -10,19 +10,51 @@ import type { Request, Response, NextFunction } from "express";
  * - Content-Security-Policy (CSP)
  */
 export function securityHeaders(req: Request, res: Response, next: NextFunction) {
+  // Force HTTPS if request comes via HTTP through reverse proxy
+  if (req.headers["x-forwarded-proto"] === "http") {
+    const host = req.headers.host || "cinebite.store";
+    return res.redirect(301, `https://${host}${req.url}`);
+  }
+
+  res.removeHeader("X-Powered-By");
+  res.removeHeader("Server");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-XSS-Protection", "0"); // Modern standard (avoids side-channel leaks)
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
 
-  if (process.env.NODE_ENV === "production" || req.secure || req.headers["x-forwarded-proto"] === "https") {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
-  }
+  // Permissions-Policy: Restricts browser APIs (camera, mic, geolocation)
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(self 'https://checkout.razorpay.com' 'https://api.razorpay.com')"
+  );
 
-  // Content Security Policy
+  // Cross-Origin Isolation Policies
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+
+  // Content Security Policy - hardened for production
+  // Eliminates 'unsafe-eval' and 'unsafe-inline' from script-src in production
+  const isProd = process.env.NODE_ENV === "production";
+  const scriptSrc = isProd
+    ? "script-src 'self' https://checkout.razorpay.com https://api.razorpay.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://api.razorpay.com";
+
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://lumberjack.razorpay.com https://api.razorpay.com wss: ws:; frame-src https://api.razorpay.com; object-src 'none'; base-uri 'self';"
+    [
+      "default-src 'self'",
+      scriptSrc,
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https://lumberjack.razorpay.com https://api.razorpay.com wss: ws:",
+      "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; ") + ";"
   );
 
   next();

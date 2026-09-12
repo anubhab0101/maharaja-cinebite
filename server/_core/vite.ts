@@ -23,6 +23,13 @@ export async function setupVite(app: Express, server: Server) {
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    const cleanPath = url.split("?")[0];
+
+    // If requesting a missing file (with extension), return 404 instead of SPA index.html
+    if (path.extname(cleanPath)) {
+      res.status(404).type("text/plain").send("Not Found");
+      return;
+    }
 
     try {
       const candidates = [
@@ -71,8 +78,13 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // fall through to index.html if the file doesn't exist (page navigation only)
+  app.use("*", (req, res) => {
+    const cleanPath = (req.originalUrl || req.path || "").split("?")[0];
+    if (path.extname(cleanPath)) {
+      res.status(404).type("text/plain").send("Not Found");
+      return;
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

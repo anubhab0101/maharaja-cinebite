@@ -77,10 +77,19 @@ temp/
 *.swo
 *~
 
-# Databases
+# Databases & SQL Dumps
 *.db
 *.sqlite
 *.sqlite3
+*.sql
+*.dump
+
+# Archives & Backups
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
 
 # OS generated files
 .DS_Store

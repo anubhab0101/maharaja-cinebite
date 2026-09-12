@@ -61,6 +61,62 @@ async function startServer() {
 
   app.get("/health", (_req, res) => res.json({ ok: true, service: "cinebites", realtime: "ready", timestamp: new Date().toISOString() }));
 
+  // 1. Direct handlers for search engine & security compliance files
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send(
+      "# CineBites Robot Exclusion Protocol\nUser-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /kitchen\nDisallow: /api/\n\nSitemap: https://cinebite.store/sitemap.xml\n"
+    );
+  });
+
+  app.get("/sitemap.xml", (_req, res) => {
+    res.type("application/xml").send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>https://cinebite.store/</loc>\n    <lastmod>2026-09-12</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n  <url>\n    <loc>https://cinebite.store/login</loc>\n    <lastmod>2026-09-12</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.3</priority>\n  </url>\n</urlset>`
+    );
+  });
+
+  app.get("/.well-known/security.txt", (_req, res) => {
+    res.type("text/plain").send(
+      "Contact: mailto:anubhabmohapatra.01@gmail.com\nExpires: 2027-12-31T23:59:59.000Z\nPreferred-Languages: en, hi\nCanonical: https://cinebite.store/.well-known/security.txt\nPolicy: https://cinebite.store/\n"
+    );
+  });
+
+  // 2. Strict sensitive path blocker (Never leak or fallback to SPA for dotfiles, config, or source files)
+  app.use((req, res, next) => {
+    const rawPath = (req.path || "").split("?")[0].toLowerCase();
+
+    // Whitelist security.txt
+    if (rawPath === "/.well-known/security.txt") {
+      return next();
+    }
+
+    // Deny all dotfiles/hidden directories (e.g. /.git, /.env, /.vscode, /.well-known/...)
+    if (/(?:^|\/)\.[^/]+/.test(rawPath)) {
+      res.status(404).type("text/plain").send("Not Found");
+      return;
+    }
+
+    // Deny sensitive files & source extensions
+    const sensitiveFilePattern =
+      /\.(env|git|sql|db|sqlite|sqlite3|dump|log|bak|backup|old|orig|zip|tar|gz|rar|7z|conf|config|ini|yaml|yml|ts|tsx|md|lock)$/;
+    const sensitiveExactFiles = [
+      "/package.json",
+      "/package-lock.json",
+      "/pnpm-lock.yaml",
+      "/tsconfig.json",
+      "/components.json",
+      "/drizzle.config.ts",
+      "/vite.config.ts",
+      "/vitest.config.ts",
+    ];
+
+    if (sensitiveFilePattern.test(rawPath) || sensitiveExactFiles.includes(rawPath)) {
+      res.status(404).type("text/plain").send("Not Found");
+      return;
+    }
+
+    next();
+  });
+
   // Razorpay Webhook Listener
   app.post("/api/payment/webhook", async (req, res) => {
     try {
@@ -177,7 +233,7 @@ function startKeepAlive() {
   const rawUrl =
     process.env.PUBLIC_APP_URL ||
     process.env.RENDER_EXTERNAL_URL ||
-    "https://cinebite.dpdns.org";
+    "https://cinebite.store";
 
   const target = `${rawUrl.replace(/\/$/, "")}/health`;
   console.log(`[Keep-Alive] Self-ping active. Target: ${target} (every 10m)`);
