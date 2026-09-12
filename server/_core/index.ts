@@ -221,12 +221,9 @@ async function startServer() {
 }
 
 function startKeepAlive() {
-  const isProd =
-    process.env.NODE_ENV === "production" ||
-    Boolean(process.env.RENDER) ||
-    Boolean(process.env.RENDER_EXTERNAL_URL);
-
-  if (!isProd) {
+  // Don't ping if running on local machine on standard dev port without external URL
+  const isLocalDev = process.env.NODE_ENV === "development" && !process.env.RENDER_EXTERNAL_URL && !process.env.PUBLIC_APP_URL;
+  if (isLocalDev) {
     return;
   }
 
@@ -236,17 +233,19 @@ function startKeepAlive() {
     "https://cinebite.store";
 
   const target = `${rawUrl.replace(/\/$/, "")}/health`;
-  console.log(`[Keep-Alive] Self-ping active. Target: ${target} (every 10m)`);
+  console.log(`[Keep-Alive] Self-ping active. Target: ${target} (every 7 minutes)`);
 
-  // Initial ping 30s after startup
+  // Initial ping 20s after startup
   setTimeout(async () => {
     try {
       const res = await fetch(target);
       if (res.ok) console.log(`[Keep-Alive] Initial self-ping completed.`);
-    } catch {}
-  }, 30 * 1000);
+    } catch (err: any) {
+      console.warn(`[Keep-Alive] Initial self-ping notice: ${err.message}`);
+    }
+  }, 20 * 1000);
 
-  // Periodic ping every 10 minutes (Render sleeps after 15m idle)
+  // Periodic ping every 7 minutes (Render sleeps after 15m idle)
   setInterval(async () => {
     try {
       const res = await fetch(target);
@@ -256,7 +255,7 @@ function startKeepAlive() {
     } catch (err: any) {
       console.warn(`[Keep-Alive] Self-ping warning: ${err.message}`);
     }
-  }, 10 * 60 * 1000);
+  }, 7 * 60 * 1000);
 }
 
 startServer().catch(console.error);
