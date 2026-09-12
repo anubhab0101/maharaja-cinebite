@@ -16,6 +16,9 @@ import {
   orders as ordersTable,
   payments as paymentsTable,
   auditLogs as auditLogsTable,
+  orderItems,
+  refunds,
+  consentRecords,
 } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
@@ -54,7 +57,7 @@ export const DEFAULT_MENU_ITEMS: MenuItem[] = [
   { id: "blue-curacao-mocktail", name: "Blue Curacao Mocktail", description: "Citrus tropical mocktail with soda", pricePaise: 6000, category: "Beverages", available: true, options: [] },
 ];
 
-const menu: MenuItem[] = [];
+const menu: MenuItem[] = DEFAULT_MENU_ITEMS.map((item) => ({ ...item }));
 let orders: KitchenOrder[] = [];
 const listeners = new Set<(event: { type: string; order: KitchenOrder }) => void>();
 const auditLog: { id: string; action: string; detail: string; actor: string; createdAt: string }[] = [];
@@ -62,7 +65,7 @@ const lastTransitions = new Map<string, { from: OrderStatus; to: OrderStatus }>(
 const staff: StaffMember[] = [];
 
 export function listMenu() {
-  return menu.map((item) => ({ ...item }));
+  return (menu.length > 0 ? menu : DEFAULT_MENU_ITEMS).map((item) => ({ ...item }));
 }
 
 export function seedDefaultMenu(actor = "system"): MenuItem[] {
@@ -187,15 +190,35 @@ export function getShiftSummary(): ShiftSummary {
 }
 
 export function getStats(): DashboardStats {
+  const itemCounts = new Map<string, number>();
+  for (const order of orders) {
+    if (order.paymentStatus === "CONFIRMED") {
+      for (const line of order.items) {
+        itemCounts.set(line.name, (itemCounts.get(line.name) ?? 0) + line.quantity);
+      }
+    }
+  }
+
+  let popularItem = "—";
+  let maxCount = 0;
+  for (const [name, count] of itemCounts.entries()) {
+    if (count > maxCount) {
+      maxCount = count;
+      popularItem = `${name} (${count} sold)`;
+    }
+  }
+
+  const confirmedOrders = orders.filter((order) => order.paymentStatus === "CONFIRMED");
+
   return {
-    ordersToday: orders.length,
-    revenuePaise: orders.reduce((sum, order) => sum + order.totalPaise, 0),
-    pending: orders.filter((order) => order.status === "NEW").length,
+    ordersToday: confirmedOrders.length,
+    revenuePaise: confirmedOrders.reduce((sum, order) => sum + order.totalPaise, 0),
+    pending: orders.filter((order) => order.status === "NEW" && order.paymentStatus === "CONFIRMED").length,
     preparing: orders.filter((order) => order.status === "PREPARING").length,
     ready: orders.filter((order) => order.status === "READY").length,
     delivered: orders.filter((order) => order.status === "DELIVERED").length,
-    paymentFailures: 0,
-    popularItem: "—",
+    paymentFailures: orders.filter((order) => order.paymentStatus === "FAILED").length,
+    popularItem,
   };
 }
 
@@ -471,3 +494,66 @@ export function resetDemoData() {
   auditLog.splice(0, auditLog.length);
   return orders;
 }
+
+export const DEVELOPER_DELETE_CODE = process.env.DEVELOPER_DELETE_CODE || "9776600";
+
+export async function deleteOrderFromDatabase(
+  orderId: string,
+  developerCode: string,
+  actor: string
+): Promise<{ success: boolean; orderNumber: string }> {
+  if (developerCode.trim() !== DEVELOPER_DELETE_CODE) {
+    throw new Error("Invalid developer authorization code. Order deletion denied.");
+  }
+
+  const index = orders.findIndex((o) => o.id === orderId || o.orderNumber === orderId);
+  let deletedOrder: KitchenOrder | undefined;
+  if (index !== -1) {
+    [deletedOrder] = orders.splice(index, 1);
+    lastTransitions.delete(deletedOrder.id);
+  }
+
+  const orderNumber = deletedOrder?.orderNumber || orderId;
+
+  // Persist deletion in MySQL / TiDB database
+  try {
+    const db = await getDb();
+    if (db) {
+      const [dbOrder] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.orderNumber, orderNumber))
+        .limit(1);
+
+      if (dbOrder) {
+        await db.delete(orderItems).where(eq(orderItems.orderId, dbOrder.id)).catch(() => {});
+        await db.delete(paymentsTable).where(eq(paymentsTable.orderId, dbOrder.id)).catch(() => {});
+        await db.delete(refunds).where(eq(refunds.orderId, dbOrder.id)).catch(() => {});
+        await db.delete(consentRecords).where(eq(consentRecords.orderId, dbOrder.id)).catch(() => {});
+        await db.delete(ordersTable).where(eq(ordersTable.id, dbOrder.id)).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn("[DB] Failed to delete order from database:", err);
+  }
+
+  auditLog.unshift({
+    id: randomUUID(),
+    action: "ORDER_DELETED_PERMANENTLY",
+    detail: `Order ${orderNumber} permanently deleted from database by ${actor} using developer code`,
+    actor,
+    createdAt: new Date().toISOString(),
+  });
+
+  // Broadcast deletion event to listeners
+  if (deletedOrder) {
+    const event = {
+      type: "order.deleted",
+      order: { ...deletedOrder, status: "CANCELED" as OrderStatus },
+    };
+    listeners.forEach((listener) => listener(event));
+  }
+
+  return { success: true, orderNumber };
+}
+

@@ -23,6 +23,7 @@ import {
   undoOrderStatus,
   updateOrderStatus,
   updateStaffRole,
+  deleteOrderFromDatabase,
 } from "./cinebites-store";
 import { ORDER_STATUSES, STAFF_ROLES } from "@shared/cinebites";
 import { getShowtimeWindow, listShowtimeDates, listShowtimes } from "./showtimes";
@@ -285,6 +286,12 @@ export const appRouter = router({
         })
       )
       .query(({ input }) => listOrderHistory(input)),
+    menu: staffProcedure("kitchen:read").query(() => listMenu()),
+    setAvailability: staffProcedure("kitchen:read")
+      .input(z.object({ id: z.string(), available: z.boolean() }))
+      .mutation(({ input, ctx }) =>
+        toggleMenuAvailability(input.id, input.available, ctx.user.name ?? ctx.user.email ?? "kitchen")
+      ),
   }),
   admin: router({
     stats: staffProcedure("analytics:read").query(() => getStats()),
@@ -324,6 +331,36 @@ export const appRouter = router({
         ...input,
         message: "Exceptional refunds require a confirmed provider integration and admin approval.",
       })),
+    deleteOrder: staffProcedure("orders:read")
+      .input(
+        z.object({
+          orderId: z.string().min(1),
+          developerCode: z.string().min(1, "Developer authorization code is required"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const user = ctx.user;
+        const role = user ? (user.role as string) : "READ_ONLY";
+        if (!["OWNER_ADMIN", "ADMIN"].includes(role)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only cinema administrators can delete orders from database.",
+          });
+        }
+
+        try {
+          return await deleteOrderFromDatabase(
+            input.orderId,
+            input.developerCode,
+            user?.name ?? user?.email ?? "admin"
+          );
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: err.message || "Failed to delete order",
+          });
+        }
+      }),
   }),
 });
 
