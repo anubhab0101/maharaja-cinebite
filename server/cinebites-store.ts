@@ -20,7 +20,7 @@ import {
   refunds,
   consentRecords,
 } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export const DEFAULT_MENU_ITEMS: MenuItem[] = [
   // --- COMBOS (7 items) ---
@@ -84,7 +84,100 @@ export function seedDefaultMenu(actor = "system"): MenuItem[] {
   return listMenu();
 }
 
+let hasSyncedFromDb = false;
+
+export async function syncOrdersFromDatabase(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return;
+    }
+
+    const dbOrders = await db.select().from(ordersTable).orderBy(desc(ordersTable.createdAt));
+    if (!dbOrders || dbOrders.length === 0) {
+      hasSyncedFromDb = true;
+      return;
+    }
+
+    // Attempt to load order item lines
+    const dbItems = await db.select().from(orderItems).catch(() => []);
+
+    for (const dbo of dbOrders) {
+      const exists = orders.some((o) => o.orderNumber === dbo.orderNumber || o.id === String(dbo.id));
+      if (!exists) {
+        const linkedItems = (dbItems as any[]).filter((it) => it.orderId === dbo.id);
+        const orderLines: OrderLine[] = linkedItems.map((it) => {
+          let opts: string[] = [];
+          try {
+            if (it.optionsSnapshot) opts = JSON.parse(it.optionsSnapshot);
+          } catch {}
+          return {
+            id: `item-${it.id}`,
+            name: it.nameSnapshot || "Cinema Snack",
+            quantity: it.quantity || 1,
+            pricePaise: it.unitPricePaise || 0,
+            options: opts,
+          };
+        });
+
+        const items: OrderLine[] = orderLines.length > 0 ? orderLines : [
+          {
+            id: `line-${dbo.id}-item`,
+            name: "Cinema Snacks & Combo",
+            quantity: 1,
+            pricePaise: dbo.totalPaise,
+            options: [],
+          },
+        ];
+
+        // Parse screen & seat if stored in instructions like "[Screen 01 | Seat 12] notes"
+        let screen = "Screen 01";
+        let seat = "Seat";
+        let instructions: string | undefined = dbo.instructions ?? undefined;
+        if (instructions && instructions.startsWith("[")) {
+          const closeBracket = instructions.indexOf("]");
+          if (closeBracket !== -1) {
+            const tag = instructions.slice(1, closeBracket);
+            const parts = tag.split("|");
+            if (parts.length >= 2) {
+              screen = parts[0].trim();
+              seat = parts[1].trim();
+            }
+            instructions = instructions.slice(closeBracket + 1).trim() || undefined;
+          }
+        }
+
+        orders.push({
+          id: String(dbo.id),
+          orderNumber: dbo.orderNumber,
+          status: (dbo.status as OrderStatus) || "NEW",
+          screen,
+          seat,
+          customerName: dbo.customerName || "Cinema Guest",
+          phoneLast4: dbo.customerPhoneLast4 || "0000",
+          totalPaise: dbo.totalPaise,
+          items,
+          instructions,
+          source: (dbo.source as any) || "ONLINE",
+          paymentStatus: (dbo.paymentStatus as any) || "CONFIRMED",
+          createdAt: dbo.createdAt ? new Date(dbo.createdAt).toISOString() : new Date().toISOString(),
+          updatedAt: dbo.updatedAt ? new Date(dbo.updatedAt).toISOString() : new Date().toISOString(),
+          priority: "NORMAL",
+        });
+      }
+    }
+
+    orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    hasSyncedFromDb = true;
+  } catch (err) {
+    console.warn("[DB] syncOrdersFromDatabase error:", err);
+  }
+}
+
 export function listOrders() {
+  if (!hasSyncedFromDb) {
+    void syncOrdersFromDatabase();
+  }
   return orders.map((order) => ({ ...order, items: order.items.map((line) => ({ ...line })) }));
 }
 
@@ -314,7 +407,8 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
   try {
     const db = await getDb();
     if (db) {
-      await db.insert(ordersTable).values({
+      const formattedInstructions = `[${newOrder.screen} | ${newOrder.seat}] ${newOrder.instructions ?? ""}`.trim();
+      const insertResult = await db.insert(ordersTable).values({
         orderNumber: newOrder.orderNumber,
         status: "NEW",
         source: newOrder.source,
@@ -324,10 +418,36 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
         customerName: newOrder.customerName,
         customerPhoneLast4: newOrder.phoneLast4,
         totalPaise: newOrder.totalPaise,
-        instructions: newOrder.instructions ?? null,
+        instructions: formattedInstructions || null,
         idempotencyKey: `idemp-${randomUUID()}`,
         paymentConfirmedAt: paymentStatus === "CONFIRMED" ? new Date() : null,
-      }).catch((e) => console.warn("[DB] Failed to persist order:", e));
+      }).catch((e) => {
+        console.warn("[DB] Failed to persist order:", e);
+        return null;
+      });
+
+      // Also persist individual order items if insert succeeded
+      if (insertResult) {
+        const [found] = await db
+          .select({ id: ordersTable.id })
+          .from(ordersTable)
+          .where(eq(ordersTable.orderNumber, newOrder.orderNumber))
+          .limit(1)
+          .catch(() => []);
+
+        if (found?.id) {
+          for (const line of newOrder.items) {
+            await db.insert(orderItems).values({
+              orderId: found.id,
+              menuItemId: 1,
+              nameSnapshot: line.name,
+              quantity: line.quantity,
+              unitPricePaise: line.pricePaise,
+              optionsSnapshot: JSON.stringify(line.options || []),
+            }).catch(() => {});
+          }
+        }
+      }
     }
   } catch (err) {
     console.warn("[DB] Order persistence skipped:", err);

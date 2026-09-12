@@ -24,6 +24,7 @@ import {
   updateOrderStatus,
   updateStaffRole,
   deleteOrderFromDatabase,
+  syncOrdersFromDatabase,
 } from "./cinebites-store";
 import { ORDER_STATUSES, STAFF_ROLES } from "@shared/cinebites";
 import { getShowtimeWindow, listShowtimeDates, listShowtimes } from "./showtimes";
@@ -263,10 +264,14 @@ export const appRouter = router({
       }),
   }),
   kitchen: router({
-    queue: staffProcedure("kitchen:read").query(() =>
-      listOrders().filter((order) => order.status !== "DELIVERED" && order.status !== "CANCELED" && order.paymentStatus === "CONFIRMED")
-    ),
-    allOrders: staffProcedure("orders:read").query(() => listOrders()),
+    queue: staffProcedure("kitchen:read").query(async () => {
+      await syncOrdersFromDatabase();
+      return listOrders().filter((order) => order.status !== "DELIVERED" && order.status !== "CANCELED" && order.paymentStatus === "CONFIRMED");
+    }),
+    allOrders: staffProcedure("orders:read").query(async () => {
+      await syncOrdersFromDatabase();
+      return listOrders();
+    }),
     updateStatus: staffProcedure("orders:status")
       .input(z.object({ orderId: z.string().min(1), status: z.enum(ORDER_STATUSES) }))
       .mutation(({ input, ctx }) =>
@@ -285,7 +290,10 @@ export const appRouter = router({
           sort: z.enum(["newest", "oldest", "value"]).optional(),
         })
       )
-      .query(({ input }) => listOrderHistory(input)),
+      .query(async ({ input }) => {
+        await syncOrdersFromDatabase();
+        return listOrderHistory(input);
+      }),
     menu: staffProcedure("kitchen:read").query(() => listMenu()),
     setAvailability: staffProcedure("kitchen:read")
       .input(z.object({ id: z.string(), available: z.boolean() }))
@@ -294,8 +302,14 @@ export const appRouter = router({
       ),
   }),
   admin: router({
-    stats: staffProcedure("analytics:read").query(() => getStats()),
-    orders: staffProcedure("orders:read").query(() => listOrders()),
+    stats: staffProcedure("analytics:read").query(async () => {
+      await syncOrdersFromDatabase();
+      return getStats();
+    }),
+    orders: staffProcedure("orders:read").query(async () => {
+      await syncOrdersFromDatabase();
+      return listOrders();
+    }),
     menu: staffProcedure("orders:read").query(() => listMenu()),
     seedMenu: staffProcedure("menu:write").mutation(({ ctx }) =>
       seedDefaultMenu(ctx.user.name ?? ctx.user.email ?? "admin")

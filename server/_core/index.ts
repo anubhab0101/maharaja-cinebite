@@ -10,7 +10,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { findOrderByNumberAndPhone, subscribe } from "../cinebites-store";
+import { findOrderByNumberAndPhone, subscribe, syncOrdersFromDatabase } from "../cinebites-store";
 import { securityHeaders, createRateLimiter } from "./security";
 import { sdk } from "./sdk";
 import { hasStaffRole } from "@shared/cinebites";
@@ -216,6 +216,7 @@ async function startServer() {
   if (port !== preferredPort) console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    syncOrdersFromDatabase().then(() => console.log("[DB] Orders synchronized on boot")).catch(console.warn);
     startKeepAlive();
   });
 }
