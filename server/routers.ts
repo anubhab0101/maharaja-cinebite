@@ -25,6 +25,8 @@ import {
   updateStaffRole,
   deleteOrderFromDatabase,
   syncOrdersFromDatabase,
+  syncStaffFromDatabase,
+  removeStaffMember,
 } from "./cinebites-store";
 import { ORDER_STATUSES, STAFF_ROLES } from "@shared/cinebites";
 import { getShowtimeWindow, listShowtimeDates, listShowtimes } from "./showtimes";
@@ -321,16 +323,24 @@ export const appRouter = router({
       ),
     audit: staffProcedure("audit:read").query(() => getAuditLog()),
     shiftSummary: staffProcedure("analytics:read").query(() => getShiftSummary()),
-    staff: staffProcedure("staff:write").query(() => listStaff()),
+    staff: staffProcedure("staff:write").query(async () => {
+      await syncStaffFromDatabase();
+      return listStaff();
+    }),
     inviteStaff: staffProcedure("staff:write")
       .input(z.object({ name: z.string().min(2).max(80), email: z.string().email(), role: z.enum(STAFF_ROLES) }))
-      .mutation(({ input, ctx }) =>
-        inviteStaff(input.name, input.email, input.role, ctx.user.name ?? ctx.user.email ?? "admin")
+      .mutation(async ({ input, ctx }) =>
+        await inviteStaff(input.name, input.email, input.role, ctx.user.name ?? ctx.user.email ?? "admin")
       ),
     updateStaffRole: staffProcedure("staff:write")
       .input(z.object({ id: z.string(), role: z.enum(STAFF_ROLES) }))
-      .mutation(({ input, ctx }) =>
-        updateStaffRole(input.id, input.role, ctx.user.name ?? ctx.user.email ?? "admin")
+      .mutation(async ({ input, ctx }) =>
+        await updateStaffRole(input.id, input.role, ctx.user.name ?? ctx.user.email ?? "admin")
+      ),
+    removeStaff: staffProcedure("staff:write")
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ input, ctx }) =>
+        await removeStaffMember(input.email, ctx.user.name ?? ctx.user.email ?? "admin")
       ),
     sessionLinks: staffProcedure("staff:write")
       .input(z.object({ baseUrl: z.string().url().optional() }).optional())

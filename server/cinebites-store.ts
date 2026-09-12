@@ -10,6 +10,7 @@ import {
   StaffMember,
   StaffRole,
   isValidTransition,
+  normalizeStaffRole,
 } from "@shared/cinebites";
 import { getDb } from "./db";
 import {
@@ -19,6 +20,7 @@ import {
   orderItems,
   refunds,
   consentRecords,
+  users as usersTable,
 } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -229,35 +231,120 @@ export function findOrdersByFullPhone(phone: string) {
     }));
 }
 
+let hasSyncedStaffFromDb = false;
+
+export async function syncStaffFromDatabase(): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return;
+    }
+
+    const dbUsers = await db.select().from(usersTable);
+    for (const u of dbUsers) {
+      if (u.email && u.role && u.role !== "READ_ONLY") {
+        const cleanEmail = u.email.toLowerCase().trim();
+        const existing = staff.find((s) => s.email.toLowerCase() === cleanEmail);
+        if (!existing) {
+          staff.push({
+            id: `staff-${u.id}`,
+            name: u.name || cleanEmail.split("@")[0],
+            email: cleanEmail,
+            role: normalizeStaffRole(u.role),
+            status: u.openId && !u.openId.startsWith("invited-") ? "ACTIVE" : "INVITED",
+            invitedAt: u.createdAt ? new Date(u.createdAt).toISOString() : new Date().toISOString(),
+          });
+        } else {
+          existing.role = normalizeStaffRole(u.role);
+          if (u.openId && !u.openId.startsWith("invited-")) {
+            existing.status = "ACTIVE";
+          }
+        }
+      }
+    }
+    hasSyncedStaffFromDb = true;
+  } catch (err) {
+    console.warn("[DB] syncStaffFromDatabase error:", err);
+  }
+}
+
 export function listStaff() {
+  if (!hasSyncedStaffFromDb) {
+    void syncStaffFromDatabase();
+  }
   return staff.map((member) => ({ ...member }));
 }
 
-export function inviteStaff(name: string, email: string, role: StaffRole, actor: string) {
-  const member: StaffMember = {
+export async function inviteStaff(name: string, email: string, role: StaffRole, actor: string): Promise<StaffMember> {
+  const cleanEmail = email.toLowerCase().trim();
+  const existing = staff.find((s) => s.email.toLowerCase() === cleanEmail);
+  const member: StaffMember = existing || {
     id: `staff-${randomUUID().slice(0, 8)}`,
     name,
-    email,
+    email: cleanEmail,
     role,
     status: "INVITED",
     invitedAt: new Date().toISOString(),
   };
-  staff.unshift(member);
+
+  if (existing) {
+    existing.name = name;
+    existing.role = role;
+  } else {
+    staff.unshift(member);
+  }
+
+  // Persist to database so staff is permanent across server restarts
+  try {
+    const db = await getDb();
+    if (db) {
+      const [found] = await db.select().from(usersTable).where(eq(usersTable.email, cleanEmail)).limit(1);
+      if (found) {
+        await db.update(usersTable).set({ name, role, updatedAt: new Date() }).where(eq(usersTable.id, found.id));
+      } else {
+        await db.insert(usersTable).values({
+          openId: `invited-${cleanEmail}`,
+          name,
+          email: cleanEmail,
+          role,
+          loginMethod: "google",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lastSignedIn: new Date(),
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[DB] Failed to persist invited staff to database:", err);
+  }
+
   auditLog.unshift({
     id: randomUUID(),
     action: "STAFF_INVITED",
-    detail: `${name} invited as ${role}`,
+    detail: `${name} (${cleanEmail}) invited as ${role}`,
     actor,
     createdAt: member.invitedAt,
   });
+
   return { ...member };
 }
 
-export function updateStaffRole(id: string, role: StaffRole, actor: string) {
+export async function updateStaffRole(id: string, role: StaffRole, actor: string) {
   const member = staff.find((candidate) => candidate.id === id);
   if (!member) throw new Error("Staff member not found");
   const previous = member.role;
   member.role = role;
+
+  // Persist update to database
+  try {
+    const db = await getDb();
+    if (db && member.email) {
+      await db.update(usersTable).set({ role, updatedAt: new Date() }).where(eq(usersTable.email, member.email.toLowerCase().trim()));
+    }
+  } catch (err) {
+    console.warn("[DB] Failed to update staff role in database:", err);
+  }
+
   auditLog.unshift({
     id: randomUUID(),
     action: "STAFF_ROLE_CHANGED",
@@ -266,6 +353,36 @@ export function updateStaffRole(id: string, role: StaffRole, actor: string) {
     createdAt: new Date().toISOString(),
   });
   return { ...member };
+}
+
+export async function removeStaffMember(idOrEmail: string, actor: string) {
+  const index = staff.findIndex((s) => s.id === idOrEmail || s.email.toLowerCase() === idOrEmail.toLowerCase());
+  let targetEmail = idOrEmail;
+  let targetName = idOrEmail;
+  if (index !== -1) {
+    const [removed] = staff.splice(index, 1);
+    targetEmail = removed.email;
+    targetName = removed.name;
+  }
+
+  try {
+    const db = await getDb();
+    if (db) {
+      await db.delete(usersTable).where(eq(usersTable.email, targetEmail.toLowerCase().trim())).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("[DB] Failed to remove staff from database:", err);
+  }
+
+  auditLog.unshift({
+    id: randomUUID(),
+    action: "STAFF_REMOVED",
+    detail: `${targetName} (${targetEmail}) removed from staff directory`,
+    actor,
+    createdAt: new Date().toISOString(),
+  });
+
+  return { success: true, email: targetEmail };
 }
 
 export function getShiftSummary(): ShiftSummary {

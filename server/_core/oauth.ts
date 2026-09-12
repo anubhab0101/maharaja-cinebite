@@ -170,6 +170,26 @@ export function registerOAuthRoutes(app: Express) {
         if (staffMatch) {
           role = normalizeStaffRole(staffMatch.role);
           isAuthorized = true;
+        } else {
+          // Direct database fallback check across restarts
+          try {
+            const database = await db.getDb();
+            if (database) {
+              const { users } = await import("../../drizzle/schema");
+              const { eq } = await import("drizzle-orm");
+              const [dbUser] = await database
+                .select()
+                .from(users)
+                .where(eq(users.email, email))
+                .limit(1);
+              if (dbUser && dbUser.role && dbUser.role !== "READ_ONLY") {
+                role = normalizeStaffRole(dbUser.role);
+                isAuthorized = true;
+              }
+            }
+          } catch (err) {
+            console.warn("[Google OAuth] DB staff lookup fallback notice:", err);
+          }
         }
       }
 

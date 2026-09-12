@@ -824,7 +824,7 @@ function OrdersTable({
                     setDeveloperCode(e.target.value);
                     setDeleteError(null);
                   }}
-                  placeholder="Enter developer code..."
+                  placeholder="Enter developer authorization code..."
                   className="w-full bg-black/50 border border-white/20 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-rose-500 transition pr-12 font-mono tracking-wider"
                   autoFocus
                 />
@@ -858,8 +858,8 @@ function OrdersTable({
                 type="button"
                 disabled={isDeleting || !developerCode.trim()}
                 onClick={async () => {
-                  if (developerCode.trim() !== "9776600") {
-                    setDeleteError("Invalid developer authorization code! You must obtain the correct code (9776600) from the developer.");
+                  if (!developerCode.trim()) {
+                    setDeleteError("Developer authorization code is required.");
                     return;
                   }
                   if (onDelete && orderToDelete) {
@@ -869,7 +869,7 @@ function OrdersTable({
                       setDeveloperCode("");
                       setDeleteError(null);
                     } catch (err: any) {
-                      setDeleteError(err.message || "Failed to delete order from database");
+                      setDeleteError(err.message || "Invalid developer authorization code. Access denied.");
                     }
                   }
                 }}
