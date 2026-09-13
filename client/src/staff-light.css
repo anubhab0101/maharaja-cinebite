@@ -1,0 +1,85 @@
+/* Staff-only light palette. Omit staff-light for the dark delivery surface. */
+.staff-light, .staff-loading-screen {
+  --staff-111110: #ffffff;
+  --staff-121211: #ffffff;
+  --staff-131312: #e9eef3;
+  --staff-151514: #eef2f6;
+  --staff-161615: #e9eef3;
+  --staff-193323: #dcfce7;
+  --staff-322219: #fed7aa;
+  --staff-949189: #475569;
+  --staff-070707: #f3f5f8;
+  --staff-090909: #ffffff;
+  --staff-0b0b0a: #edf1f5;
+  --staff-0d0d0c: #ffffff;
+  --staff-0f1c13: #e7f5ec;
+  --staff-15291c: #dcfce7;
+  --staff-160b06: #431407;
+  --staff-16100c: #fff3e8;
+  --staff-16120e: #ffedd5;
+  --staff-1a110c: #fff1e6;
+  --staff-1a120d: #fff3e6;
+  --staff-1a120e: #ffedd5;
+  --staff-1a1a19: #e2e8f0;
+  --staff-1b1525: #f0e9ff;
+  --staff-1d3927: #bbf7d0;
+  --staff-20130e: #ffedd5;
+  --staff-22140e: #ffedd5;
+  --staff-22150f: #ffedd5;
+  --staff-24160f: #ffedd5;
+  --staff-251a13: #fff7ed;
+  --staff-4a4843: #64748b;
+  --staff-4a9865: #15803d;
+  --staff-55534e: #64748b;
+  --staff-5a5853: #64748b;
+  --staff-62ac79: #15803d;
+  --staff-6a6862: #64748b;
+  --staff-76746e: #526176;
+  --staff-7db893: #166534;
+  --staff-8266b8: #7c3aed;
+  --staff-85827b: #475569;
+  --staff-9fe2b4: #166534;
+  --staff-a48bd1: #6d28d9;
+  --staff-b58c77: #9a3412;
+  --staff-c48c6f: #9a3412;
+  --staff-c9983f: #a16207;
+  --staff-d46b38: #d46b38;
+  --staff-dedad2: #1e293b;
+  --staff-e09f7a: #9a3412;
+  --staff-e57e4c: #a33e15;
+  --staff-ea9b73: #ea9b73;
+  --staff-f0c3a8: #9a3412;
+  --staff-fff: #1e293b;
+  --staff-line-rgb: 40, 55, 75;
+  --staff-header: #ffffff;
+  color-scheme: light;
+  --background: #f3f5f8;
+  --foreground: #1e293b;
+  --card: #ffffff;
+  --card-foreground: #1e293b;
+  --muted: #64748b;
+}
+.staff-light [class*="text-white"],
+.staff-light [class*="text-[#"] { color: #334155; }
+.staff-light [class*="text-white/"] { color: #526176; }
+.staff-light [class*="border-white/"] { border-color: #d7dee7; }
+.staff-light [class*="bg-white/"] { background-color: #eef2f6; }
+.staff-light [class*="bg-[#"]:not([class*="bg-[#d46b38]"]) { background-color: #ffffff; }
+.staff-light :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  color: #1e293b; background-color: #fff; border-color: #cbd5e1;
+}
+.staff-light ::placeholder { color: #64748b; opacity: 1; }
+.staff-light :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #a33e15; outline-offset: 3px;
+}
+.staff-light [class*="text-red-"],
+.staff-light [class*="text-rose-"] { color: #b91c1c; }
+.staff-light [class*="text-emerald-"],
+.staff-light [class*="text-green-"] { color: #166534; }
+.staff-light [class*="text-amber-"],
+.staff-light [class*="text-orange-"] { color: #9a3412; }
+.staff-light .kitchen-order-card { box-shadow: 0 3px 12px rgba(30,41,59,.07); }
+body:has(.staff-light) .policy-footer { background: #edf1f5; color: #475569; }
+body:has(.staff-light) { background: #f3f5f8; }
+/* Printed seat stickers always retain pure black on white. */
+.staff-light .seat-qr-sticker { color: #000; background: #fff; }

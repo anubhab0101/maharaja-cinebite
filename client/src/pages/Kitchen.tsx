@@ -196,7 +196,7 @@ export default function Kitchen() {
     );
   }
   return (
-    <div className="staff-app">
+    <div className="staff-app staff-light">
       <header className="staff-header">
         <div className="staff-brand">
           <div className="staff-brand-mark"><ChefHat size={18} /></div>

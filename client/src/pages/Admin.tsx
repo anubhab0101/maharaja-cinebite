@@ -94,7 +94,7 @@ export default function Admin() {
 
   if (loading) {
     return (
-      <div className="staff-loading-screen">
+      <div className="staff-loading-screen staff-light">
         <span className="button-spinner" /> Checking admin access…
       </div>
     );
@@ -102,7 +102,7 @@ export default function Admin() {
 
   if (!user || !hasStaffRole(user.role, ["OWNER_ADMIN", "ADMIN", "MANAGER"])) {
     return (
-      <div className="staff-loading-screen">
+      <div className="staff-loading-screen staff-light">
         <ShieldAlert size={20} />
         <div>
           <strong>Admin access restricted</strong>
@@ -121,7 +121,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="admin-app">
+    <div className="admin-app staff-light">
       <aside className="admin-sidebar">
         <div className="admin-logo">
           <div className="staff-brand-mark">
