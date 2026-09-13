@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -18,6 +19,8 @@ export default function SeatQrGenerator() {
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [progress, setProgress] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [preparingPrint, setPreparingPrint] = useState(false);
+  const printRoot = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [section, setSection] = useState("");
@@ -66,6 +69,17 @@ export default function SeatQrGenerator() {
     const link = document.createElement("a"); link.href = row.image;
     link.download = `Maharaja-${row.seat}-QR.png`; link.click();
   }
+  async function printStickers() {
+    if (!visible.length || preparingPrint) return;
+    setPreparingPrint(true);
+    try {
+      // Never open preview before every selected QR image is ready.
+      await Promise.all(Array.from(printRoot.current?.querySelectorAll("img") ?? []).map(image => image.decode()));
+      window.print();
+    } catch {
+      toast.error("A QR image could not load. Please generate the stickers again before printing.");
+    } finally { setPreparingPrint(false); }
+  }
   async function copy(row: Sticker) {
     try { await navigator.clipboard.writeText(row.url); toast.success(`Seat ${row.seat} link copied`); }
     catch { toast.error("Could not copy the link. Use Open to access it."); }
@@ -98,7 +112,8 @@ export default function SeatQrGenerator() {
       <div className="print:hidden admin-panel p-5 space-y-4">
         <h3 className="font-semibold">Ready! {stickers.length} seat QRs generated for {stickers[0].screenName}</h3>
         <div className="grid gap-3 sm:grid-cols-2"><label>Section<select className={inputClass} value={section} onChange={e => setSection(e.target.value)}><option value="">All sections</option>{MAHARAJA_SECTIONS.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label><label>Find a seat<input className={inputClass} value={search} placeholder="Example: MS-A01" onChange={e => setSearch(e.target.value)} /></label></div>
-        <div className="flex flex-wrap gap-3"><button className="primary-small" disabled={!visible.length} onClick={() => window.print()}>Print / Save PDF ({visible.length} seats)</button><button className="secondary-admin-button" disabled={!visible.length} onClick={exportCsv}>Download links CSV</button></div>
+        <div className="flex flex-wrap gap-3"><button className="primary-small" disabled={!visible.length || preparingPrint} onClick={() => void printStickers()}>{preparingPrint ? "Preparing print…" : `Print stickers / Save PDF (${visible.length} seats)`}</button><button className="secondary-admin-button" disabled={!visible.length} onClick={exportCsv}>Download links CSV</button></div>
+        <p className="text-sm">A4 portrait · 4 stickers per page (2 × 2) · {Math.ceil(visible.length / 4)} pages. Only stickers appear in print preview. Use 100% scale and turn browser headers and footers off.</p>
         <p className="text-sm text-white/75">The selected seats below will print. Choose “Save as PDF” in the print dialog to download a printable sheet.</p>
       </div>
       <div className="seat-qr-stickers grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{visible.map(row => <article key={row.token} className="seat-qr-sticker rounded-xl border border-black/20 bg-white p-4 text-center text-black">
@@ -109,5 +124,17 @@ export default function SeatQrGenerator() {
       </article>)}</div>
       {!visible.length && <p className="print:hidden">No matching seats. Clear the search or choose All sections.</p>}
     </>}
+    {visible.length > 0 && createPortal(<div ref={printRoot} className="seat-qr-print-root" aria-hidden="true">
+      {Array.from({ length: Math.ceil(visible.length / 4) }, (_, page) => <div className="seat-qr-print-page" key={page}>
+        {visible.slice(page * 4, page * 4 + 4).map(row => <article className="seat-qr-print-card" key={row.token}>
+          <p className="seat-qr-print-brand">Maharaja Cinema</p>
+          <p>{row.screenName}</p>
+          <h2>{row.seat}</h2>
+          <p>{describeMaharajaSeat(row.seat)}</p>
+          <img src={row.image} width={240} height={240} alt={`QR for ${row.seat}`} />
+          <p className="seat-qr-print-instruction">Scan to order food to your seat</p>
+        </article>)}
+      </div>)}
+    </div>, document.body)}
   </section>;
 }

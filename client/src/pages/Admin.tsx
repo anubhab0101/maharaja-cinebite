@@ -40,6 +40,7 @@ import ShowtimeManager from "@/pages/ShowtimeManager";
 import SeatQrGenerator from "@/pages/SeatQrGenerator";
 import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 import MenuCatalog from "./MenuCatalog";
+import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
 type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "showtimes" | "sessions" | "seatQrs" | "audit";
 
@@ -57,6 +58,7 @@ const tabs: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 export default function Admin() {
+  const staffTheme = useStaffTheme();
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
   const [tab, setTab] = useState<Tab>("overview");
   const stats = trpc.admin.stats.useQuery();
@@ -121,7 +123,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="admin-app staff-light">
+    <div className={`admin-app ${staffTheme.className}`}>
       <aside className="admin-sidebar">
         <div className="admin-logo">
           <div className="staff-brand-mark">
@@ -173,6 +175,7 @@ export default function Admin() {
             <h1>{tabs.find((item) => item.id === tab)?.label}</h1>
           </div>
           <div className="admin-top-actions">
+            <StaffThemeToggle {...staffTheme} />
             <span className="admin-date">{today}</span>
             <button
               className="refresh-button"

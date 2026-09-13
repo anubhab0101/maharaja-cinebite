@@ -6,6 +6,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Link } from "wouter";
 import { hasStaffRole, KitchenOrder, ORDER_STATUSES, OrderStatus, rupees } from "@shared/cinebites";
 import { isAudioReady, playKitchenChime, testKitchenAudio, unlockKitchenAudio } from "@/lib/kitchenAudio";
+import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
 const columns: { status: OrderStatus; label: string; tone: string }[] = [
   { status: "NEW", label: "New", tone: "orange" },
@@ -17,6 +18,7 @@ type UndoAction = { order: KitchenOrder; previousStatus: OrderStatus; nextStatus
 function minutesAgo(value: string) { return Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 60000)); }
 
 export default function Kitchen() {
+  const staffTheme = useStaffTheme();
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login?redirect=/rasoi" });
   const utils = trpc.useUtils();
   const queue = trpc.kitchen.queue.useQuery(undefined, { refetchInterval: 30000 });
@@ -196,7 +198,7 @@ export default function Kitchen() {
     );
   }
   return (
-    <div className="staff-app staff-light">
+    <div className={`staff-app ${staffTheme.className}`}>
       <header className="staff-header">
         <div className="staff-brand">
           <div className="staff-brand-mark"><ChefHat size={18} /></div>
@@ -215,6 +217,7 @@ export default function Kitchen() {
         </div>
 
         <div className="staff-actions">
+          <StaffThemeToggle {...staffTheme} />
           <button
             className={`alert-toggle ${showMenuModal ? "active" : ""}`}
             onClick={() => setShowMenuModal(true)}

@@ -1,4 +1,4 @@
-/* Staff-only light palette. Omit staff-light for the dark delivery surface. */
+/* Staff palette selected by the persistent admin/kitchen theme toggle. */
 .staff-light, .staff-loading-screen {
   --staff-111110: #ffffff;
   --staff-121211: #ffffff;
@@ -83,3 +83,38 @@ body:has(.staff-light) .policy-footer { background: #edf1f5; color: #475569; }
 body:has(.staff-light) { background: #f3f5f8; }
 /* Printed seat stickers always retain pure black on white. */
 .staff-light .seat-qr-sticker { color: #000; background: #fff; }
+
+/* A border colour alone is invisible after the browser reset removes its width. */
+:is(.admin-app, .staff-app) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 42px;
+  max-width: 100%;
+  color: var(--staff-dedad2, #dedad2);
+  background: var(--staff-121211, #121211);
+}
+.staff-light.staff-light :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  border: 1px solid #7c8b9e;
+  background: #fff;
+  color: #1e293b;
+}
+:is(.admin-app, .staff-app) .admin-panel label:has(> :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea)) {
+  display: inline-flex; flex-direction: column; gap: 6px;
+  margin: 6px 12px 10px 0; max-width: 100%; vertical-align: top;
+}
+:is(.admin-app, .staff-app) .admin-panel form > button:not([class]),
+:is(.admin-app, .staff-app) .admin-panel button[class=""] {
+  padding: 10px 14px; margin: 6px 8px 6px 0; border: 1px solid #7c8b9e;
+  border-radius: 8px; background: var(--staff-151514, #151514);
+}
+.staff-dark { color-scheme: dark; }
+.staff-dark :is(input, select, textarea):focus-visible {
+  outline: 2px solid #fb923c; outline-offset: 2px;
+}
+.staff-dark ::placeholder { color: #a8a29e; opacity: 1; }
+:is(.admin-app, .staff-app) :is(input, select, textarea):disabled { opacity: .65; cursor: not-allowed; }
+@media (max-width: 680px) {
+  .staff-actions { flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  .admin-top-actions { flex-wrap: wrap; }
+}
