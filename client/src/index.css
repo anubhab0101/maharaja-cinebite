@@ -441,3 +441,17 @@ button.cine-animated-button:disabled { transform: none; }
   background: #62ac79;
   box-shadow: 0 0 0 4px rgba(98, 172, 121, 0.25);
 }
+
+@media print {
+  body:has(.seat-qr-workspace) { background: white !important; color: black !important; }
+  body:has(.seat-qr-workspace) .admin-sidebar,
+  body:has(.seat-qr-workspace) .admin-topbar,
+  body:has(.seat-qr-workspace) .policy-footer,
+  body:has(.seat-qr-workspace) [data-sonner-toaster] { display: none !important; }
+  .admin-app:has(.seat-qr-workspace) { display: block; background: white; }
+  .admin-content:has(.seat-qr-workspace) { padding: 0; width: 100%; max-width: none; }
+  .seat-qr-workspace, .seat-qr-stickers { margin: 0 !important; }
+  .seat-qr-stickers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4mm; }
+  .seat-qr-sticker { break-inside: avoid; page-break-inside: avoid; padding: 3mm; box-shadow: none; }
+  .seat-qr-sticker img { width: 35mm; height: 35mm; }
+}

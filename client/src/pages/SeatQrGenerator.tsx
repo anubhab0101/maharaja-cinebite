@@ -1,603 +1,113 @@
-import { useState, useMemo, useEffect } from "react";
-import { Download, Printer, QrCode, Search, Copy, Check, RefreshCw, ExternalLink } from "lucide-react";
+import { useRef, useState } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { MAHARAJA_SEAT_LABELS } from "@shared/maharaja-seats";
+import { MAHARAJA_SEAT_LABELS, MAHARAJA_SECTIONS, describeMaharajaSeat } from "@shared/maharaja-seats";
 
-export interface SeatQrItem {
-  id: string;
-  screen: string;
-  seat: string;
-  url: string;
-  qrDataUrl: string;
-}
-
-const AUDI_PRESETS = [
-  "Audi 1 (Dolby Atmos)",
-  "Audi 2 (4K Christie)",
-  "Audi 3",
-  "Audi 4",
-  "Screen 01",
-  "VIP Lounge",
-];
-
-const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+type SavedSeat = { screenName: string; seat: string; token: string };
+type Sticker = SavedSeat & { url: string; image: string };
+const labels = new Set(MAHARAJA_SEAT_LABELS);
+const inputClass = "block w-full rounded-xl border border-white/20 bg-[#161616] p-3 text-white";
 
 export default function SeatQrGenerator() {
-  const [permanent, setPermanent] = useState(true);
   const configured = trpc.admin.configuredSeats.useQuery();
-  const sessions = trpc.admin.sessionLinks.useQuery();
-  const [selectedSessionToken, setSelectedSessionToken] = useState("");
-  const [screen, setScreen] = useState("Audi 1 (Dolby Atmos)");
-  const [customScreen, setCustomScreen] = useState("");
-  const screenNames = Array.from(new Set(configured.data?.map(row => row.screenName) ?? []));
-  const activeScreenName = permanent ? (screenNames.includes(screen) ? screen : screenNames[0] || "") : customScreen.trim() || screen;
+  const shows = trpc.admin.showtimes.useQuery();
+  const save = trpc.admin.configureSeats.useMutation();
+  const [chosenScreen, setChosenScreen] = useState("");
+  const [newScreen, setNewScreen] = useState("");
+  const [stickers, setStickers] = useState<Sticker[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState("");
+  const [section, setSection] = useState("");
+  const [search, setSearch] = useState("");
+  const names = Array.from(new Set([...(configured.data ?? []).map(row => row.screenName), ...(shows.data ?? []).map(row => row.screenName).filter((name): name is string => Boolean(name))]));
+  const screen = chosenScreen === "__new" ? newScreen.trim() : chosenScreen || names[0] || newScreen.trim();
+  const saved = (configured.data ?? []).filter(row => row.screenName === screen && labels.has(row.seat));
+  const extraCount = (configured.data ?? []).filter(row => row.screenName === screen && !labels.has(row.seat)).length;
+  const visible = stickers.filter(row => (!section || row.seat.startsWith(section + "-")) && (!search.trim() || describeMaharajaSeat(row.seat).toLowerCase().includes(search.trim().toLowerCase()) || row.seat.toLowerCase().includes(search.trim().toLowerCase())));
 
-  const [mode, setMode] = useState<"grid" | "single" | "custom">("custom");
-  const [startRow, setStartRow] = useState("A");
-  const [endRow, setEndRow] = useState("N");
-  const [startNum, setStartNum] = useState(1);
-  const [endNum, setEndNum] = useState(24);
-  const [skipI, setSkipI] = useState(true);
-
-  const [singleRow, setSingleRow] = useState("F");
-  const [customSeatsText, setCustomSeatsText] = useState(MAHARAJA_SEAT_LABELS.join(", "));
-
-  const [cinemaName, setCinemaName] = useState("Maharaja Cinema");
-  const [stickerDensity, setStickerDensity] = useState<"standard" | "compact" | "large">("standard");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [qrItems, setQrItems] = useState<SeatQrItem[]>([]);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const computedSeats = useMemo(() => {
-    const seats: string[] = [];
-
-    if (mode === "grid") {
-      const startIndex = Math.max(0, ALPHABET.indexOf(startRow.toUpperCase()));
-      const endIndex = Math.max(startIndex, ALPHABET.indexOf(endRow.toUpperCase()));
-      const rows = ALPHABET.slice(startIndex, endIndex + 1);
-
-      for (const r of rows) {
-        if (skipI && r === "I") continue;
-        for (let num = startNum; num <= endNum; num++) {
-          seats.push(`${r}${num}`);
-        }
-      }
-    } else if (mode === "single") {
-      const r = singleRow.toUpperCase() || "A";
-      for (let num = startNum; num <= endNum; num++) {
-        seats.push(`${r}${num}`);
-      }
-    } else {
-      const parsed = customSeatsText
-        .split(/[,\s\n]+/)
-        .map((s) => s.trim().toUpperCase())
-        .filter((s) => s.length > 0);
-      seats.push(...Array.from(new Set(parsed)));
-    }
-
-    return seats;
-  }, [mode, startRow, endRow, startNum, endNum, skipI, singleRow, customSeatsText]);
-
-  async function generateQrs() {
-    const selectedSession = sessions.data?.find(s => s.token === selectedSessionToken);
-    if (!permanent && !selectedSession) { toast.error("Select a valid showtime session first"); return; }
-    const targetScreen = permanent ? activeScreenName : selectedSession!.screenName;
-    const savedSeats = configured.data?.filter(row => row.screenName === targetScreen) ?? [];
-    const targetSeats = permanent ? savedSeats.map(row => row.seat) : computedSeats;
-    if (!targetSeats.length || targetSeats.some(seat => !savedSeats.some(row => row.seat === seat))) { toast.error("Configure these seats for the selected screen first, then refresh seat configuration."); return; }
-    if (targetSeats.length > 1000) { toast.error("Maximum 1000 seats per batch"); return; }
-    setGenerating(true);
-    const origin = window.location.origin;
-    const items: SeatQrItem[] = [];
-
+  function clearPreview() { setStickers([]); setError(""); setProgress(0); }
+  async function generate() {
+    if (busyRef.current) return;
+    if (!screen) { setError("Enter the screen name used in Movies & showtimes first."); return; }
+    busyRef.current = true;
+    setBusy(true); setError(""); setStickers([]); setProgress(0); setSearch(""); setSection("");
     try {
-      for (const seat of targetSeats) {
-        const url = permanent ? `${origin}/?seatToken=${encodeURIComponent(savedSeats.find(row => row.seat === seat)!.token)}` : `${origin}/?session=${encodeURIComponent(selectedSession!.token)}&seat=${encodeURIComponent(seat)}`;
-        const qrDataUrl = await QRCode.toDataURL(url, {
-          width: 320,
-          margin: 1,
-          errorCorrectionLevel: "M",
-          color: {
-            dark: "#000000",
-            light: "#ffffff",
-          },
-        });
-        items.push({
-          id: `${targetScreen}_${seat}`,
-          screen: targetScreen,
-          seat,
-          url,
-          qrDataUrl,
-        });
+      // Re-saving adds missing seats and preserves every existing QR token.
+      if (saved.length !== MAHARAJA_SEAT_LABELS.length) {
+        await save.mutateAsync({ screen, labels: MAHARAJA_SEAT_LABELS });
       }
-
-      setQrItems(items);
-      toast.success(`${items.length} seat QR stickers generated successfully!`);
-    } catch (err: any) {
-      toast.error("QR generation failed: " + (err?.message || "Unknown error"));
-    } finally {
-      setGenerating(false);
-    }
+      const result = await configured.refetch();
+      if (result.error || !result.data) throw new Error("Could not read the saved seats. Please try again.");
+      const rows = result.data.filter(row => row.screenName === screen && labels.has(row.seat));
+      if (rows.length !== MAHARAJA_SEAT_LABELS.length) throw new Error("The complete layout could not be loaded. Check that the screen is active, then retry.");
+      const byLabel = new Map(rows.map(row => [row.seat, row]));
+      const output: Sticker[] = [];
+      for (let offset = 0; offset < MAHARAJA_SEAT_LABELS.length; offset += 12) {
+        const batch = await Promise.all(MAHARAJA_SEAT_LABELS.slice(offset, offset + 12).map(async label => {
+          const row = byLabel.get(label)!;
+          const url = `${window.location.origin}/?seatToken=${encodeURIComponent(row.token)}`;
+          return { ...row, url, image: await QRCode.toDataURL(url, { width: 320, margin: 4, errorCorrectionLevel: "M" }) };
+        }));
+        output.push(...batch);
+        setProgress(output.length);
+        // Allow progress painting and taps between batches on slower phones.
+        await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+      }
+      setStickers(output);
+      toast.success(`${output.length} permanent seat QRs ready`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "QR generation failed. Please try again.");
+    } finally { setBusy(false); busyRef.current = false; }
+  }
+  function download(row: Sticker) {
+    const link = document.createElement("a"); link.href = row.image;
+    link.download = `Maharaja-${row.seat}-QR.png`; link.click();
+  }
+  async function copy(row: Sticker) {
+    try { await navigator.clipboard.writeText(row.url); toast.success(`Seat ${row.seat} link copied`); }
+    catch { toast.error("Could not copy the link. Use Open to access it."); }
+  }
+  function exportCsv() {
+    const csvCell = (value: string) => `"${(/^[=+\-@\t\r]/.test(value) ? "'" : "") + value.replaceAll('"', '""')}"`;
+    const csv = ["Screen,Seat,URL", ...visible.map(row => [row.screenName, row.seat, row.url].map(csvCell).join(","))].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = "Maharaja-seat-QR-links.csv"; link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  // Generate only on explicit action; a session/seat edit must not leave stale
-  // printable stickers from a previous show.
-  useEffect(() => { setQrItems([]); }, [selectedSessionToken, computedSeats, activeScreenName, permanent, configured.data]);
-
-  const filteredItems = useMemo(() => {
-    if (!searchQuery.trim()) return qrItems;
-    const q = searchQuery.trim().toLowerCase();
-    return qrItems.filter(
-      (item) => item.seat.toLowerCase().includes(q) || item.screen.toLowerCase().includes(q)
-    );
-  }, [qrItems, searchQuery]);
-
-  async function handleCopy(item: SeatQrItem) {
-    await navigator.clipboard.writeText(item.url);
-    setCopiedId(item.id);
-    toast.success(`Link for Seat ${item.seat} copied!`);
-    setTimeout(() => setCopiedId(null), 2000);
-  }
-
-  function handleDownloadPng(item: SeatQrItem) {
-    const a = document.createElement("a");
-    a.href = item.qrDataUrl;
-    a.download = `${item.screen}_Seat_${item.seat}_QR.png`;
-    a.click();
-    toast.success(`Downloaded QR for Seat ${item.seat}`);
-  }
-
-  function handleDownloadCsv() {
-    if (!qrItems.length) return;
-    const header = "Screen,Seat,URL\n";
-    const rows = qrItems.map((i) => `"${i.screen}","${i.seat}","${i.url}"`).join("\n");
-    const blob = new Blob([header + rows], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${activeScreenName.replace(/\s+/g, "_")}_Seat_QRs.csv`;
-    a.click();
-    toast.success("Downloaded Seat QR list as CSV");
-  }
-
-  function handlePrint() {
-    window.print();
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="print:hidden space-y-3 rounded-xl border border-white/20 p-4">
-        <label className="flex gap-2"><input type="checkbox" checked={permanent} onChange={e => setPermanent(e.target.checked)} />Permanent seat stickers (recommended)</label>
-        <p>Print once and keep on the seats. The current movie comes from Movies &amp; showtimes. Keep the same domain, screen and seat records so stickers remain valid.</p>
-        <button className="secondary-admin-button" onClick={() => void configured.refetch()}>Refresh seat configuration</button>
-        {configured.isLoading && <p>Loading configured seats…</p>}
-        {configured.isError && <p role="alert">Could not load configured seats. Please refresh.</p>}
-        {!configured.isLoading && !configured.isError && !screenNames.length && <p>Save your screen and seat configuration above before generating stickers.</p>}
-      </div>
-      {!permanent && <label className="print:hidden block">Showtime session (required)
-        <select value={selectedSessionToken} onChange={e => { setSelectedSessionToken(e.target.value); const s = sessions.data?.find(s => s.token === e.target.value); if (s) { setCustomScreen(s.screenName); setScreen("custom"); } }}>
-          <option value="">Select a configured showtime</option>
-          {sessions.data?.map(s => <option key={s.token} value={s.token}>{s.screenName} · {s.show.showDate} · {s.show.startTime} · {s.show.movieTitle}</option>)}
-        </select>
-        <p>These stickers are show-specific. Use only theatre-confirmed seats saved in seat configuration; replace stickers for the next show.</p>
-      </label>}
-      {/* Controls Card - Hidden during Print */}
-      <div className="print:hidden rounded-2xl border border-white/10 bg-[#0d0d0c] p-6 shadow-xl space-y-6 text-[#dedad2]">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[#d46b38]">
-              <QrCode size={16} /> Bulk Armrest Stickers
-            </div>
-            <h2 className="text-2xl font-bold tracking-tight text-[#dedad2] mt-1">
-              Cinema Seat QR Code Generator
-            </h2>
-            <p className="text-sm text-[#85827b] mt-1">
-              Generate permanent seat stickers or temporary show-specific QRs. Only saved, configured seats can be printed.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={handlePrint}
-              disabled={qrItems.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#d46b38] px-5 py-2.5 text-sm font-semibold text-[#160b06] shadow-lg shadow-[#d46b38]/20 transition hover:bg-[#e57e4c] active:scale-95 disabled:opacity-50"
-            >
-              <Printer size={16} /> Print Sticker Sheets ({qrItems.length})
-            </button>
-            <button
-              onClick={handleDownloadCsv}
-              disabled={qrItems.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-[#141414] px-4 py-2.5 text-sm font-medium text-[#dedad2] transition hover:bg-[#202020] disabled:opacity-50"
-            >
-              <Download size={15} /> Download CSV
-            </button>
-          </div>
-        </div>
-
-        {/* Configuration Grid */}
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Step 1: Screen */}
-          <div className="space-y-3">
-            <label className="block text-xs font-mono uppercase tracking-wider text-[#85827b]">
-              Step 1: Select Screen / Audi
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {(permanent ? screenNames : AUDI_PRESETS).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => {
-                    setScreen(p);
-                    setCustomScreen("");
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-xs transition ${
-                    activeScreenName === p
-                      ? "bg-[#d46b38] text-[#160b06] font-semibold"
-                      : "border border-white/10 bg-[#141414] text-[#85827b] hover:text-[#dedad2]"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-            {!permanent && <input
-              type="text"
-              value={customScreen}
-              onChange={(e) => setCustomScreen(e.target.value)}
-              placeholder="Or type custom screen (e.g. Audi 5 IMAX)"
-              className="w-full rounded-xl border border-white/10 bg-[#050505] px-3 py-2 text-sm text-[#dedad2] outline-none focus:border-[#d46b38]"
-            />}
-          </div>
-
-          {/* Step 2: Seat Range */}
-          {permanent ? <div className="space-y-3"><p>Saved seat layout</p><p>{configured.data?.filter(row => row.screenName === activeScreenName).length ?? 0} configured seats will be printed for {activeScreenName || "your screen"}.</p><p className="text-sm text-white/70">To add seats, use seat configuration above and then Refresh seat configuration.</p></div> : <div className="space-y-3">
-            <label className="block text-xs font-mono uppercase tracking-wider text-[#85827b]">
-              Step 2: Seat Layout Mode
-            </label>
-            <div className="grid grid-cols-3 gap-1 rounded-xl bg-[#050505] p-1 border border-white/10">
-              <button
-                type="button"
-                onClick={() => setMode("grid")}
-                className={`rounded-lg py-1 text-xs font-medium transition ${
-                  mode === "grid" ? "bg-[#d46b38] text-[#160b06] font-semibold" : "text-[#85827b]"
-                }`}
-              >
-                Audi Grid (A-N)
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("single")}
-                className={`rounded-lg py-1 text-xs font-medium transition ${
-                  mode === "single" ? "bg-[#d46b38] text-[#160b06] font-semibold" : "text-[#85827b]"
-                }`}
-              >
-                Single Row
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("custom")}
-                className={`rounded-lg py-1 text-xs font-medium transition ${
-                  mode === "custom" ? "bg-[#d46b38] text-[#160b06] font-semibold" : "text-[#85827b]"
-                }`}
-              >
-                Custom List
-              </button>
-            </div>
-
-            {mode === "grid" && (
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">From Row</span>
-                    <select
-                      value={startRow}
-                      onChange={(e) => setStartRow(e.target.value)}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    >
-                      {ALPHABET.map((r) => (
-                        <option key={r} value={r}>
-                          Row {r}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">To Row</span>
-                    <select
-                      value={endRow}
-                      onChange={(e) => setEndRow(e.target.value)}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    >
-                      {ALPHABET.map((r) => (
-                        <option key={r} value={r}>
-                          Row {r}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">Start Seat #</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={startNum}
-                      onChange={(e) => setStartNum(Number(e.target.value))}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">End Seat #</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={endNum}
-                      onChange={(e) => setEndNum(Number(e.target.value))}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-center gap-2 text-xs text-[#85827b] pt-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={skipI}
-                    onChange={(e) => setSkipI(e.target.checked)}
-                    className="accent-[#d46b38]"
-                  />
-                  <span>Skip Row &quot;I&quot; (recommended for cinema seating)</span>
-                </label>
-              </div>
-            )}
-
-            {mode === "single" && (
-              <div className="space-y-2">
-                <div>
-                  <span className="text-[11px] text-[#85827b]">Select Row Letter</span>
-                  <select
-                    value={singleRow}
-                    onChange={(e) => setSingleRow(e.target.value)}
-                    className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                  >
-                    {ALPHABET.map((r) => (
-                      <option key={r} value={r}>
-                        Row {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">From Seat</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={startNum}
-                      onChange={(e) => setStartNum(Number(e.target.value))}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-[#85827b]">To Seat</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={endNum}
-                      onChange={(e) => setEndNum(Number(e.target.value))}
-                      className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {mode === "custom" && (
-              <div className="space-y-1">
-                <span className="text-[11px] text-[#85827b]">Comma-separated seats:</span>
-                <textarea
-                  rows={3}
-                  value={customSeatsText}
-                  onChange={(e) => setCustomSeatsText(e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] font-mono outline-none"
-                  placeholder="A1, A2, A3, VIP-1, VIP-2"
-                />
-              </div>
-            )}
-          </div>
-
-          }
-          {/* Step 3: Sticker Appearance & Density */}
-          <div className="space-y-3 flex flex-col justify-between">
-            <div>
-              <label className="block text-xs font-mono uppercase tracking-wider text-[#85827b]">
-                Step 3: Print Sheet Layout
-              </label>
-              <div className="mt-2 space-y-2">
-                <div>
-                  <span className="text-[11px] text-[#85827b]">Theatre / Brand Header</span>
-                  <input
-                    type="text"
-                    value={cinemaName}
-                    onChange={(e) => setCinemaName(e.target.value)}
-                    placeholder="Maharaja Cinema"
-                    className="w-full rounded-lg border border-white/10 bg-[#050505] p-2 text-xs text-[#dedad2] outline-none"
-                  />
-                </div>
-
-                <div>
-                  <span className="text-[11px] text-[#85827b]">Sticker Sheet Density</span>
-                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-[#050505] p-1 border border-white/10 mt-1">
-                    <button
-                      type="button"
-                      onClick={() => setStickerDensity("standard")}
-                      className={`rounded-lg py-1 text-xs transition ${
-                        stickerDensity === "standard"
-                          ? "bg-[#d46b38] text-[#160b06] font-semibold"
-                          : "text-[#85827b]"
-                      }`}
-                    >
-                      12 / Sheet
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStickerDensity("compact")}
-                      className={`rounded-lg py-1 text-xs transition ${
-                        stickerDensity === "compact"
-                          ? "bg-[#d46b38] text-[#160b06] font-semibold"
-                          : "text-[#85827b]"
-                      }`}
-                    >
-                      20 / Sheet
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStickerDensity("large")}
-                      className={`rounded-lg py-1 text-xs transition ${
-                        stickerDensity === "large"
-                          ? "bg-[#d46b38] text-[#160b06] font-semibold"
-                          : "text-[#85827b]"
-                      }`}
-                    >
-                      6 / Sheet
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={generateQrs}
-              disabled={generating || configured.isLoading || configured.isError || (permanent ? !activeScreenName : computedSeats.length === 0)}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#d46b38] py-3 text-sm font-semibold text-[#160b06] shadow-lg shadow-[#d46b38]/20 transition hover:bg-[#e57e4c] active:scale-[0.98] disabled:opacity-50 mt-4"
-            >
-              <RefreshCw size={16} className={generating ? "animate-spin" : ""} />
-              {generating ? "Generating QRs..." : permanent ? "Generate permanent seat stickers" : `Generate ${computedSeats.length} QR Stickers`}
-            </button>
-          </div>
-        </div>
-
-        {/* Live Filter Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-white/5">
-          <div className="relative w-full max-w-xs">
-            <Search size={15} className="absolute left-3 top-3 text-[#85827b]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Quick filter seat (e.g. F12)..."
-              className="w-full rounded-xl border border-white/10 bg-[#050505] pl-9 pr-3 py-2 text-xs text-[#dedad2] outline-none focus:border-[#d46b38]"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-[#85827b]">
-            <span>Showing <strong>{filteredItems.length}</strong> of {qrItems.length} stickers</span>
-            <span className="h-3 w-px bg-white/10" />
-            <span>Target Screen: <code className="text-[#d46b38]">{activeScreenName}</code></span>
-          </div>
-        </div>
-      </div>
-
-      {/* STICKER GRID - Both UI View & Print Sheets */}
-      <div
-        className={`grid gap-4 print:gap-2 print:m-0 ${
-          stickerDensity === "compact"
-            ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 print:grid-cols-4"
-            : stickerDensity === "large"
-            ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 print:grid-cols-2"
-            : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 print:grid-cols-3"
-        }`}
-      >
-        {filteredItems.map((item) => (
-          <article
-            key={item.id}
-            className="group relative rounded-2xl border border-white/15 bg-white text-black p-3.5 shadow-md flex flex-col items-center justify-between text-center transition hover:shadow-xl print:border-2 print:border-black print:rounded-xl print:p-2.5 print:break-inside-avoid"
-          >
-            {/* Top Brand & Screen */}
-            <div className="w-full border-b border-black/15 pb-1.5 mb-1.5">
-              <p className="text-[9px] font-mono font-bold tracking-wider text-black/75 uppercase">
-                {cinemaName}
-              </p>
-              <p className="text-[11px] font-semibold text-[#b85020] uppercase tracking-wide">
-                {item.screen}
-              </p>
-            </div>
-
-            {/* SEAT NUMBER (Prominent for Dim Auditorium Lighting) */}
-            <div className="my-1">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-black/60 block -mb-1">
-                SEAT
-              </span>
-              <strong className="text-3xl font-extrabold tracking-tight text-black font-sans">
-                {item.seat}
-              </strong>
-            </div>
-
-            {/* High-Contrast QR Code */}
-            <div className="p-1 bg-white rounded-lg border border-black/10 my-1">
-              <img
-                src={item.qrDataUrl}
-                alt={`QR for ${item.screen} Seat ${item.seat}`}
-                className="h-36 w-36 object-contain print:h-28 print:w-28"
-              />
-            </div>
-
-            {/* Bottom Instructions */}
-            <div className="w-full border-t border-black/15 pt-1.5 mt-1.5">
-              <p className="text-[9px] font-bold text-black leading-tight">
-                Scan to Order Food to Your Seat
-              </p>
-              <p className="text-[8px] text-black/60 font-mono mt-0.5">
-                Instant Delivery • Cashless UPI
-              </p>
-            </div>
-
-            {/* Hover Actions in UI View (Hidden during Print) */}
-            <div className="print:hidden absolute inset-0 rounded-2xl bg-black/85 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2 p-3 backdrop-blur-sm">
-              <strong className="text-white font-mono text-sm">{item.seat}</strong>
-              <div className="flex flex-col gap-2 w-full max-w-[140px]">
-                <button
-                  type="button"
-                  onClick={() => handleCopy(item)}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs py-1.5 font-medium transition"
-                >
-                  {copiedId === item.id ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                  {copiedId === item.id ? "Copied" : "Copy Link"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadPng(item)}
-                  className="flex items-center justify-center gap-1.5 rounded-lg bg-[#d46b38] hover:bg-[#e57e4c] text-[#160b06] text-xs py-1.5 font-semibold transition"
-                >
-                  <Download size={13} /> Download PNG
-                </button>
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-center gap-1 text-[10px] text-white/70 hover:text-white underline pt-1"
-                >
-                  Test Link <ExternalLink size={10} />
-                </a>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      {filteredItems.length === 0 && (
-        <div className="rounded-2xl border border-white/10 bg-[#0d0d0c] p-12 text-center text-[#85827b]">
-          <QrCode size={36} className="mx-auto text-[#d46b38]/50 mb-3" />
-          <p className="text-base font-semibold text-[#dedad2]">No seat stickers match your filter</p>
-          <p className="text-xs mt-1">Try adjusting your search query or row range.</p>
-        </div>
-      )}
+  return <section className="seat-qr-workspace space-y-5">
+    <div className="print:hidden admin-panel p-5 space-y-4">
+      <h2 className="text-xl font-semibold">Permanent seat QRs</h2>
+      <p className="text-white/80">Choose your screen → generate → print. No movie selection or seat-code typing needed. These stickers work for future shows too.</p>
+      <fieldset disabled={busy} className="space-y-4 disabled:opacity-70">
+        {names.length > 0 && <label className="block">Screen<select className={inputClass} value={chosenScreen || names[0]} onChange={e => { setChosenScreen(e.target.value); clearPreview(); }}>{names.map(name => <option key={name}>{name}</option>)}<option value="__new">Add another screen…</option></select></label>}
+        {(!names.length || chosenScreen === "__new") && <label className="block">Screen name<input className={inputClass} maxLength={64} placeholder="Use the same name as your movie schedule" value={newScreen} onChange={e => { setNewScreen(e.target.value); clearPreview(); }} /></label>}
+        <div className="rounded-xl bg-white/5 p-4"><p className="font-semibold">Your supplied Maharaja layout · {MAHARAJA_SEAT_LABELS.length} seats</p><p className="mt-1 text-sm text-white/75">Motorized Slider · Super Deluxe · Recliner · Slider</p><p className="mt-2 text-sm">{saved.length} of {MAHARAJA_SEAT_LABELS.length} seats already saved{screen ? ` for ${screen}` : ""}. Missing seats will be saved automatically.</p></div>
+        {extraCount > 0 && <p className="text-sm text-amber-200">{extraCount} saved seat label(s) are outside the supplied layout (for example, a section name alone). They are kept in the database but excluded from these stickers.</p>}
+        <button className="primary-small w-full justify-center" disabled={!screen || configured.isLoading || configured.isError} onClick={() => void generate()}>{busy ? save.isPending ? "Saving seat layout…" : `Generating ${progress} / ${MAHARAJA_SEAT_LABELS.length}…` : saved.length === MAHARAJA_SEAT_LABELS.length ? `Generate ${MAHARAJA_SEAT_LABELS.length} seat QRs` : `Use Maharaja layout & generate ${MAHARAJA_SEAT_LABELS.length} QRs`}</button>
+      </fieldset>
+      {busy && <div role="status" aria-live="polite"><progress className="w-full" max={MAHARAJA_SEAT_LABELS.length} value={progress} /><p>Please keep this tab open while the stickers are prepared.</p></div>}
+      {configured.isLoading && <p role="status">Loading saved seats…</p>}
+      {(error || configured.isError) && <div role="alert" className="text-red-200"><p>{error || "Could not load seats. Check your connection and admin login."}</p><button className="secondary-admin-button mt-2" disabled={busy} onClick={() => { setError(""); void configured.refetch(); }}>Retry loading seats</button></div>}
+      <p className="text-sm text-white/70">Print one test sticker and scan it before printing all seats. Keep your screen name and website domain unchanged after printing.</p>
     </div>
-  );
+    {stickers.length > 0 && <>
+      <div className="print:hidden admin-panel p-5 space-y-4">
+        <h3 className="font-semibold">Ready! {stickers.length} seat QRs generated for {stickers[0].screenName}</h3>
+        <div className="grid gap-3 sm:grid-cols-2"><label>Section<select className={inputClass} value={section} onChange={e => setSection(e.target.value)}><option value="">All sections</option>{MAHARAJA_SECTIONS.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label><label>Find a seat<input className={inputClass} value={search} placeholder="Example: MS-A01" onChange={e => setSearch(e.target.value)} /></label></div>
+        <div className="flex flex-wrap gap-3"><button className="primary-small" disabled={!visible.length} onClick={() => window.print()}>Print / Save PDF ({visible.length} seats)</button><button className="secondary-admin-button" disabled={!visible.length} onClick={exportCsv}>Download links CSV</button></div>
+        <p className="text-sm text-white/75">The selected seats below will print. Choose “Save as PDF” in the print dialog to download a printable sheet.</p>
+      </div>
+      <div className="seat-qr-stickers grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{visible.map(row => <article key={row.token} className="seat-qr-sticker rounded-xl border border-black/20 bg-white p-4 text-center text-black">
+        <p className="font-semibold">Maharaja Cinema</p><p className="text-sm">{row.screenName}</p><h3 className="mt-2 text-2xl font-bold">{row.seat}</h3><p className="text-xs">{describeMaharajaSeat(row.seat)}</p>
+        <img className="mx-auto h-40 w-40" width={160} height={160} src={row.image} alt={`Food ordering QR for ${row.seat}`} />
+        <p className="text-sm font-semibold">Scan to order food to your seat</p>
+        <div className="print:hidden mt-3 flex flex-wrap justify-center gap-3 text-sm"><button className="rounded border border-black/30 px-3 py-2" onClick={() => download(row)}>Download PNG</button><button className="rounded border border-black/30 px-3 py-2" onClick={() => void copy(row)}>Copy link</button><a className="px-3 py-2 underline" href={row.url} target="_blank" rel="noreferrer">Open</a></div>
+      </article>)}</div>
+      {!visible.length && <p className="print:hidden">No matching seats. Clear the search or choose All sections.</p>}
+    </>}
+  </section>;
 }

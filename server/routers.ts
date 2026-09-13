@@ -362,9 +362,10 @@ export const appRouter = router({
       return db.transaction(async tx => {
         await tx.insert(screens).values({ name: input.screen }).onDuplicateKeyUpdate({ set: { name: input.screen } });
         const [screen] = await tx.select().from(screens).where(eq(screens.name, input.screen)).limit(1);
-        for (const label of Array.from(new Set(input.labels))) {
-          await tx.insert(seats).values({ screenId: screen.id, label, qrToken: randomBytes(32).toString("hex") }).onDuplicateKeyUpdate({ set: { label } });
-        }
+        const rows = Array.from(new Set(input.labels)).map(label => ({ screenId: screen.id, label, qrToken: randomBytes(32).toString("hex") }));
+        // One batch instead of hundreds of remote DB round trips. Updating only
+        // the existing screen ID preserves saved labels and permanent QR tokens.
+        await tx.insert(seats).values(rows).onDuplicateKeyUpdate({ set: { screenId: screen.id } });
         await tx.insert(auditLogs).values({ actorUserId: ctx.user!.id, action: "SEATS_CONFIGURED", entityType: "screen", entityId: String(screen.id), detail: `Added/verified ${input.labels.length} seats` });
         return { success: true };
       });

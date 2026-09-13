@@ -208,7 +208,7 @@ export default function Admin() {
         {tab === "staff" && <StaffManagement />}
         {tab === "sessions" && <><p className="mb-4 text-sm text-white/80">For permanent armrest stickers, use Seat QRs. These session links are optional, temporary links for a particular show. Manage the schedule in Movies &amp; showtimes.</p><SessionLinks /></>}
         {tab === "showtimes" && <ShowtimeManager />}
-        {tab === "seatQrs" && <><PilotSeatSetup /><SeatQrGenerator /></>}
+        {tab === "seatQrs" && <><SeatQrGenerator /><details className="print:hidden mt-6"><summary className="cursor-pointer text-sm text-white/70">Advanced: add seat codes manually</summary><PilotSeatSetup /></details></>}
         {tab === "audit" && <Audit logs={audit.data ?? []} />}
       </main>
     </div>
