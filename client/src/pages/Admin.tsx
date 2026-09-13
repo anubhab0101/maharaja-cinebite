@@ -37,7 +37,8 @@ import ShiftSummary from "@/pages/ShiftSummary";
 import StaffManagement from "@/pages/StaffManagement";
 import SessionLinks from "@/pages/SessionLinks";
 import SeatQrGenerator from "@/pages/SeatQrGenerator";
-import { PilotOverview, PilotMenuEditor, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
+import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
+import MenuCatalog from "./MenuCatalog";
 
 type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "sessions" | "seatQrs" | "audit";
 
@@ -199,12 +200,7 @@ export default function Admin() {
           />
         )}
         {tab === "menu" && (
-          <><PilotMenuEditor />
-          <MenuManager
-            items={menu.data ?? []}
-            orders={orders.data}
-            onToggle={(id, available) => availability.mutate({ id, available })}
-          /></>
+          <MenuCatalog />
         )}
         {tab === "refunds" && <PilotRefunds />}
         {tab === "staff" && <StaffManagement />}
