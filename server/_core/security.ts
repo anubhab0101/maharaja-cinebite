@@ -58,10 +58,14 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     [
       "default-src 'self'",
       scriptSrc,
+      // Admin/Kitchen and UI libraries still use inline styles. Do not remove
+      // this allowance until those flows have passed a strict-style CSP audit.
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://lumberjack.razorpay.com https://api.razorpay.com wss: ws:",
+      // Production uses same-origin HTTP/SSE, not WebSockets. Vite HMR needs
+      // WebSockets only during development.
+      `connect-src 'self' https://lumberjack.razorpay.com https://api.razorpay.com${isProd ? "" : " wss: ws:"}`,
       "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
       "object-src 'none'",
       "base-uri 'self'",
