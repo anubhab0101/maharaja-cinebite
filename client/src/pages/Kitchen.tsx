@@ -201,7 +201,11 @@ export default function Kitchen() {
     <div className={`staff-app ${staffTheme.className}`}>
       <header className="staff-header">
         <div className="staff-brand">
-          <div className="staff-brand-mark"><ChefHat size={18} /></div>
+          <img
+            src="/logo.png"
+            alt="CineBites Logo"
+            className="h-9 w-9 rounded-full object-cover border border-amber-500/40 shadow-md shadow-amber-500/20"
+          />
           <div>
             <strong>CineBites</strong>
             <span>Kitchen Control</span>

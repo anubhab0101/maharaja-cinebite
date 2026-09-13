@@ -30,9 +30,11 @@ export default function Login() {
       <div className="mx-auto my-auto w-full max-w-md">
         <div className="rounded-3xl border border-white/10 bg-[#0d0d0c] p-8 shadow-2xl backdrop-blur-xl">
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-amber-600 shadow-lg shadow-orange-500/20">
-              <Sparkles size={24} className="text-black" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="CineBites Maharaja Logo"
+              className="mx-auto mb-4 h-20 w-20 rounded-full object-cover border-2 border-amber-500/40 shadow-xl shadow-amber-500/25"
+            />
             <h1 className="text-2xl font-bold tracking-tight text-[#dedad2]">Staff & Admin Portal</h1>
             <p className="mt-2 text-sm text-[#85827b]">
               Sign in with your authorized theatre Google account to access the operations console.

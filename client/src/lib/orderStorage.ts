@@ -13,6 +13,30 @@ export interface SavedOrder {
 
 const ACTIVE_ORDER_KEY = "cinebites_active_order";
 const ORDER_HISTORY_KEY = "cinebites_order_history";
+const DISMISSED_ORDER_KEY = "cinebites_dismissed_orders";
+
+function dismissedOrders(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(DISMISSED_ORDER_KEY) || "[]");
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  } catch { return []; }
+}
+
+export function isOrderDismissed(orderNumber: string): boolean {
+  return dismissedOrders().includes(orderNumber);
+}
+
+export function dismissOrderTracking(orderNumber: string): void {
+  try {
+    const dismissed = [orderNumber, ...dismissedOrders().filter(value => value !== orderNumber)].slice(0, 20);
+    localStorage.setItem(DISMISSED_ORDER_KEY, JSON.stringify(dismissed));
+  } catch { /* The current screen still dismisses when storage is unavailable. */ }
+  const active = getActiveOrder();
+  if (!active || active.orderNumber === orderNumber) clearActiveOrder();
+  try {
+    localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(getOrderHistory().filter(order => order.orderNumber !== orderNumber)));
+  } catch {}
+}
 
 export function getActiveOrder(): SavedOrder | null {
   if (typeof window === "undefined") return null;
@@ -20,7 +44,7 @@ export function getActiveOrder(): SavedOrder | null {
     const raw = localStorage.getItem(ACTIVE_ORDER_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.orderNumber === "string") {
+    if (parsed && typeof parsed.orderNumber === "string" && !isOrderDismissed(parsed.orderNumber)) {
       return parsed;
     }
     return null;
@@ -31,6 +55,7 @@ export function getActiveOrder(): SavedOrder | null {
 
 export function saveActiveOrder(order: SavedOrder): void {
   if (typeof window === "undefined") return;
+  if (isOrderDismissed(order.orderNumber)) return;
   try {
     localStorage.setItem(ACTIVE_ORDER_KEY, JSON.stringify(order));
     const history = getOrderHistory();

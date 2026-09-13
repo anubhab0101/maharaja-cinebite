@@ -49,13 +49,15 @@ button.cine-animated-button:disabled { transform: none; }
 .app-shell { min-height: 100vh; overflow: hidden; background: #050505; }
 .mx-auto { margin-left: auto; margin-right: auto; }
 
-.brand-mark { display: flex; align-items: center; gap: 9px; color: #dedad2; }
+.brand-mark { display: flex; align-items: center; gap: 10px; color: #dedad2; text-decoration: none; }
+.brand-logo-img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1.5px solid rgba(212, 107, 56, 0.45); box-shadow: 0 0 12px rgba(212, 107, 56, 0.25); transition: transform .2s ease, box-shadow .2s ease; flex-shrink: 0; }
+.brand-mark:hover .brand-logo-img { transform: scale(1.06); box-shadow: 0 0 16px rgba(212, 107, 56, 0.45); }
 .brand-mark-shape { position: relative; display: flex; gap: 2px; align-items: flex-end; width: 20px; height: 20px; transform: skewY(-11deg); }
 .brand-mark-shape span { display: block; width: 5px; border-radius: 2px; background: var(--accent); }
 .brand-mark-shape span:nth-child(1) { height: 12px; opacity: .8; }
 .brand-mark-shape span:nth-child(2) { height: 17px; }
 .brand-mark-shape span:nth-child(3) { height: 9px; opacity: .65; }
-.brand-mark-text { font-size: 17px; font-weight: 700; letter-spacing: -.04em; }
+.brand-mark-text { font-size: 18px; font-weight: 700; letter-spacing: -.03em; }
 .brand-mark-text span { color: var(--accent); }
 
 .nav-link { color: #85827b; font-size: 13px; transition: color .18s ease; }

@@ -126,9 +126,11 @@ export default function Admin() {
     <div className={`admin-app ${staffTheme.className}`}>
       <aside className="admin-sidebar">
         <div className="admin-logo">
-          <div className="staff-brand-mark">
-            <BarChart3 size={17} />
-          </div>
+          <img
+            src="/logo.png"
+            alt="CineBites Logo"
+            className="h-9 w-9 rounded-full object-cover border border-amber-500/40 shadow-md shadow-amber-500/20"
+          />
           <div>
             <strong>
               cine<span>bites</span>

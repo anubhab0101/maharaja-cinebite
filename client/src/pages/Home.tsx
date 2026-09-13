@@ -30,7 +30,8 @@ import {
   SavedOrder,
   getActiveOrder,
   saveActiveOrder,
-  getOrderHistory,
+  dismissOrderTracking,
+  isOrderDismissed,
 } from "@/lib/orderStorage";
 
 type Category = "Popular" | "Combos" | "Popcorn" | "Snacks" | "Beverages";
@@ -133,7 +134,11 @@ function ItemIllustration({ item, small = false }: { item: MenuItem; small?: boo
 function BrandMark() {
   return (
     <div className="brand-mark" aria-label="CineBites logo">
-      <div className="brand-mark-shape"><span /><span /><span /></div>
+      <img
+        src="/logo.png"
+        alt="CineBites Maharaja Logo"
+        className="brand-logo-img"
+      />
       <span className="brand-mark-text">cine<span>bites</span></span>
     </div>
   );
@@ -765,11 +770,12 @@ function ActiveOrderBanner({
             <span>Live status</span>
             <ArrowRight size={13} />
           </button>
-          {isDelivered && (
+          {(
             <button
               onClick={onDismiss}
               className="p-1 text-white/40 hover:text-white cursor-pointer"
-              title="Dismiss"
+              title="Hide order tracking"
+              aria-label="Hide order tracking reminders"
             >
               <X size={15} />
             </button>
@@ -790,7 +796,6 @@ function FindOrderModal({
   onSelectOrder: (order: SavedOrder) => void;
 }) {
   const [phone, setPhone] = useState("");
-  const history = getOrderHistory();
   const [lookupOrderNumber, setLookupOrderNumber] = useState("");
 
   const cleanDigits = phone.replace(/\D/g, "");
@@ -814,7 +819,7 @@ function FindOrderModal({
           <div>
             <h3 className="text-lg font-bold text-[#dedad2]">Track Your Cinema Order</h3>
             <p className="text-xs text-[#85827b] mt-0.5">
-              Restore a recent order below, or enter its order number and mobile number.
+              Enter your order number and mobile number to check its status.
             </p>
           </div>
           <button onClick={onClose} className="p-1 text-white/50 hover:text-white cursor-pointer">
@@ -891,33 +896,6 @@ function FindOrderModal({
           </div>
         )}
 
-        {history.length > 0 && (!lookupQuery.data || lookupQuery.data.length === 0) && (
-          <div className="space-y-2 mt-4">
-            <p className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">
-              Recent on this device
-            </p>
-            {history.map((item) => (
-              <div
-                key={item.orderNumber}
-                onClick={() => {
-                  onSelectOrder(item);
-                  onClose();
-                }}
-                className="p-3 rounded-xl bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all cursor-pointer flex items-center justify-between"
-              >
-                <div>
-                  <strong className="text-sm text-[#dedad2]">#{item.orderNumber}</strong>
-                  <p className="text-xs text-[#85827b] mt-0.5">
-                    {item.screen} • Seat {item.seat}
-                  </p>
-                </div>
-                <span className="text-xs text-white/60 flex items-center gap-1">
-                  View <ArrowRight size={13} />
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -956,6 +934,7 @@ export default function Home() {
         createdAt: new Date().toISOString(),
       };
       setActiveOrder(orderData);
+      setBannerDismissed(isOrderDismissed(orderData.orderNumber));
       saveActiveOrder(orderData);
       setView("tracking");
       return;
@@ -1196,7 +1175,7 @@ export default function Home() {
         onBack={() => setView("menu")}
         cartCount={cartCount}
         onCart={() => setDrawerOpen(true)}
-        activeOrder={activeOrder}
+        activeOrder={bannerDismissed ? null : activeOrder}
         onOpenTracking={() => {
           setView("tracking");
           window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1308,7 +1287,11 @@ export default function Home() {
             setView("tracking");
             window.scrollTo({ top: 0, behavior: "smooth" });
           }}
-          onDismiss={() => setBannerDismissed(true)}
+          onDismiss={() => {
+            dismissOrderTracking(activeOrder.orderNumber);
+            setBannerDismissed(true);
+            setActiveOrder(null);
+          }}
         />
       )}
       <FindOrderModal
@@ -1316,7 +1299,8 @@ export default function Home() {
         onClose={() => setLookupOpen(false)}
         onSelectOrder={(selected) => {
           setActiveOrder(selected);
-          saveActiveOrder(selected);
+          // A manual lookup opens this view only, without restoring reminders.
+          setBannerDismissed(true);
           setView("tracking");
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
