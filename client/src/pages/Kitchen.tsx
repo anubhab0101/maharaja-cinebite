@@ -20,7 +20,7 @@ export default function Kitchen() {
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login?redirect=/rasoi" });
   const utils = trpc.useUtils();
   const queue = trpc.kitchen.queue.useQuery(undefined, { refetchInterval: 30000 });
-  const menuQuery = trpc.kitchen.menu.useQuery();
+  const menuQuery = trpc.kitchen.menu.useQuery(undefined, { refetchInterval: 15000, refetchOnWindowFocus: true });
   const setAvailability = trpc.kitchen.setAvailability.useMutation({
     onSuccess: (_res, variables) => {
       toast.success(`Item marked as ${variables.available ? "Available" : "Sold Out"}`);
@@ -382,6 +382,8 @@ export default function Kitchen() {
           onClose={() => setShowMenuModal(false)}
           items={menuQuery.data ?? []}
           isLoading={menuQuery.isLoading}
+          error={menuQuery.error?.message}
+          onRetry={() => void menuQuery.refetch()}
           topSellingNames={topSellingNames}
           onToggle={(id, available) => {
             setAvailability.mutate({ id, available });
@@ -397,6 +399,8 @@ function KitchenStockModal({
   onClose,
   items,
   isLoading,
+  error,
+  onRetry,
   topSellingNames,
   onToggle,
 }: {
@@ -412,6 +416,8 @@ function KitchenStockModal({
     options: string[];
   }[];
   isLoading: boolean;
+  error?: string;
+  onRetry: () => void;
   topSellingNames: string[];
   onToggle: (id: string, available: boolean) => void;
 }) {
@@ -517,13 +523,14 @@ function KitchenStockModal({
 
         {/* Scrollable list */}
         <div className="p-4 overflow-y-auto space-y-2.5 flex-1 max-h-[58vh]">
-          {isLoading ? (
+          <button className="underline text-sm text-white/80" onClick={onRetry}>Refresh menu</button>
+          {error ? <div role="alert" className="py-6 text-red-200">Menu could not load: {error}. Use Refresh menu to retry.</div> : isLoading ? (
             <div className="py-12 text-center text-white/40 text-xs">
               <span className="button-spinner mr-2" /> Loading menu catalog…
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="py-12 text-center text-white/40 text-xs">
-              No menu items found.
+            <div className="py-12 text-center text-white/80 text-sm">
+              {items.length === 0 ? "No saved menu yet. Ask an admin to open /maharaja → Menu → Load starter menu, or add items. Then refresh this list." : "No items match your search or category. Clear the filters to see all items."}
             </div>
           ) : (
             filteredItems.map((item) => {
