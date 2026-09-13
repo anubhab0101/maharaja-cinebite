@@ -76,7 +76,7 @@ async function startServer() {
   // 1. Direct handlers for search engine & security compliance files
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send(
-      "# CineBites Robot Exclusion Protocol\nUser-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /kitchen\nDisallow: /api/\n\nSitemap: https://cinebite.store/sitemap.xml\n"
+      "# CineBites Robot Exclusion Protocol\nUser-agent: *\nAllow: /\nDisallow: /maharaja\nDisallow: /rasoi\nDisallow: /api/\n\nSitemap: https://cinebite.store/sitemap.xml\n"
     );
   });
 

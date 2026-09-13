@@ -22,6 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { loadRazorpay } from "@/lib/razorpay-loader";
 import AnimatedButton from "@/components/ui/animated-button";
 import AsciiGlitchRipple from "@/components/ui/ascii-glitch-ripple";
 import { trpc } from "@/lib/trpc";
@@ -1082,6 +1083,8 @@ export default function Home() {
         checkoutRequest.current = { fingerprint, key: crypto.randomUUID() };
       }
 
+      // Contact the payment provider only after the user initiates checkout.
+      await loadRazorpay();
       // 1. Create order in PENDING payment status on server
       const res = await createOrderMutation.mutateAsync({
         screen: details.screen,

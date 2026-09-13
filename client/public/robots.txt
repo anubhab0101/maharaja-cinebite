@@ -1,8 +1,8 @@
 # CineBites Robot Exclusion Protocol
 User-agent: *
 Allow: /
-Disallow: /admin
-Disallow: /kitchen
+Disallow: /maharaja
+Disallow: /rasoi
 Disallow: /api/
 
 Sitemap: https://cinebite.store/sitemap.xml

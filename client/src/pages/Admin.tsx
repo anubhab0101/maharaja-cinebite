@@ -108,7 +108,7 @@ export default function Admin() {
             <Link href="/login" className="text-orange-400 underline">
               Sign in with Admin Google Account
             </Link>
-            <Link href="/kitchen" className="text-white/60 underline">
+            <Link href="/rasoi" className="text-white/60 underline">
               Kitchen view
             </Link>
           </div>
@@ -149,7 +149,7 @@ export default function Admin() {
           <div className="admin-live">
             <span /> Service live
           </div>
-          <Link href="/kitchen" className="kitchen-link">
+          <Link href="/rasoi" className="kitchen-link">
             Open kitchen view <ChevronDown size={14} />
           </Link>
           <button className="admin-user" onClick={() => logout()}>

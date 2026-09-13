@@ -37,7 +37,7 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     const redirectTarget = typeof req.query.redirect === "string" && req.query.redirect.length <= 2048
-      ? safeRedirect(req.query.redirect) : "/admin";
+      ? safeRedirect(req.query.redirect) : "/maharaja";
 
     const nonce = crypto.randomBytes(24).toString("hex");
     const statePayload = JSON.stringify({ nonce, redirect: redirectTarget });
@@ -184,8 +184,8 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_DURATION_MS });
 
-      // Redirect user to destination (/admin or /kitchen)
-      const destination = safeRedirect(decodedState.redirect, role === "KITCHEN" ? "/kitchen" : "/admin");
+      // Redirect user to destination (/maharaja or /rasoi)
+      const destination = safeRedirect(decodedState.redirect, role === "KITCHEN" ? "/rasoi" : "/maharaja");
 
       res.redirect(302, destination);
     } catch {
@@ -239,7 +239,7 @@ export function registerOAuthRoutes(app: Express) {
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_DURATION_MS });
 
-    const destination = safeRedirect(req.query.redirect, targetRole === "KITCHEN" ? "/kitchen" : "/admin");
+    const destination = safeRedirect(req.query.redirect, targetRole === "KITCHEN" ? "/rasoi" : "/maharaja");
 
     res.redirect(302, destination);
   });

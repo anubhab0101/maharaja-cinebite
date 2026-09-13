@@ -17,7 +17,7 @@ type UndoAction = { order: KitchenOrder; previousStatus: OrderStatus; nextStatus
 function minutesAgo(value: string) { return Math.max(1, Math.round((Date.now() - new Date(value).getTime()) / 60000)); }
 
 export default function Kitchen() {
-  const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login?redirect=/kitchen" });
+  const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login?redirect=/rasoi" });
   const utils = trpc.useUtils();
   const queue = trpc.kitchen.queue.useQuery(undefined, { refetchInterval: 30000 });
   const menuQuery = trpc.kitchen.menu.useQuery();
@@ -188,7 +188,7 @@ export default function Kitchen() {
           <strong>Kitchen access restricted</strong>
           <span>Sign in with an approved cinema staff Google account to view the kitchen queue.</span>
           <div className="mt-3 flex gap-3 text-sm">
-            <Link href="/login?redirect=/kitchen" className="text-orange-400 underline">Sign in with Google</Link>
+            <Link href="/login?redirect=/rasoi" className="text-orange-400 underline">Sign in with Google</Link>
             <Link href="/" className="text-white/60 underline">Return to CineBites</Link>
           </div>
         </div>
@@ -372,7 +372,7 @@ export default function Kitchen() {
 
         <div className="kitchen-footer">
           <span><span className="privacy-dot" /> Privacy-safe view</span>
-          <span>Kitchen can toggle menu stock & advance status • <Link href="/admin">Open admin tools</Link></span>
+          <span>Kitchen can toggle menu stock & advance status • <Link href="/maharaja">Open admin tools</Link></span>
         </div>
       </main>
 

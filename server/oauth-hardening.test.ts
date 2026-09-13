@@ -11,7 +11,7 @@ vi.mock("./cinebites-store", () => ({ listStaff: vi.fn(async () => []) }));
 vi.mock("./_core/sdk", () => ({ sdk: { createSessionToken: vi.fn(async () => "signed-test-session") } }));
 
 const nonce = "a".repeat(48);
-const state = Buffer.from(JSON.stringify({ nonce, redirect: "/admin" })).toString("base64url");
+const state = Buffer.from(JSON.stringify({ nonce, redirect: "/maharaja" })).toString("base64url");
 let routes: Record<string, Function>;
 let response: any;
 let provider: ReturnType<typeof vi.fn>;
@@ -39,7 +39,7 @@ describe("Google login hardening", () => {
   it("bounds callback input and requires strict state and verified provider fields", () => {
     expect(oauthCallbackSchema.safeParse({ code: "x".repeat(4097), state }).success).toBe(false);
     expect(oauthCallbackSchema.safeParse({ code: ["a", "b"], state }).success).toBe(false);
-    expect(oauthStateSchema.safeParse({ nonce: "short", redirect: "/admin" }).success).toBe(false);
+    expect(oauthStateSchema.safeParse({ nonce: "short", redirect: "/maharaja" }).success).toBe(false);
     expect(googleProfileSchema.safeParse({ sub: "123", email: "bad", email_verified: true }).success).toBe(false);
     expect(googleProfileSchema.safeParse({ sub: "123", email: "a@example.com", email_verified: "true" }).success).toBe(false);
   });
@@ -81,7 +81,7 @@ describe("Google login hardening", () => {
     await callback();
     expect(upsertUser).toHaveBeenCalledWith(expect.objectContaining({ email: "owner@example.com", role: "OWNER_ADMIN" }));
     expect(sdk.createSessionToken).toHaveBeenCalledOnce();
-    expect(response.redirect).toHaveBeenCalledWith(302, "/admin");
+    expect(response.redirect).toHaveBeenCalledWith(302, "/maharaja");
     for (const call of provider.mock.calls) expect(call[1].signal).toBeInstanceOf(AbortSignal);
   });
   it("public login contains neither dev controls nor raw error interpolation", () => {

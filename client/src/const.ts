@@ -16,6 +16,6 @@ export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 export const startLogin = (redirect?: string) => {
   if (typeof window === "undefined") return;
   const currentPath = window.location.pathname;
-  const target = redirect || (currentPath && currentPath !== "/login" ? currentPath : "/admin");
+  const target = redirect || (currentPath && currentPath !== "/login" ? currentPath : "/maharaja");
   window.location.href = `/login?redirect=${encodeURIComponent(target)}`;
 };

@@ -6,7 +6,7 @@ export function getClientIp(req: Request): string {
   return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
-export function safeRedirect(value: unknown, fallback = "/admin"): string {
+export function safeRedirect(value: unknown, fallback = "/maharaja"): string {
   return typeof value === "string" && /^\/(?![\/\\])/.test(value) &&
     !/[\\\x00-\x20\x7f]/.test(value) ? value : fallback;
 }
@@ -23,7 +23,7 @@ export function isLocalDevLoginAllowed(req: Request): boolean {
  * Implements OWASP recommendations:
  * - X-Frame-Options: DENY (prevents Clickjacking)
  * - X-Content-Type-Options: nosniff (prevents MIME sniffing)
- * - Referrer-Policy: strict-origin-when-cross-origin
+ * - Referrer-Policy: no-referrer
  * - Strict-Transport-Security (HSTS)
  * - Content-Security-Policy (CSP)
  */
@@ -32,14 +32,14 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   res.removeHeader("Server");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-XSS-Protection", "0"); // Modern standard (avoids side-channel leaks)
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
 
   // Permissions-Policy: Restricts browser APIs (camera, mic, geolocation)
   res.setHeader(
     "Permissions-Policy",
-    "camera=(), microphone=(), geolocation=(), payment=(self 'https://checkout.razorpay.com' 'https://api.razorpay.com')"
+    'camera=(), microphone=(), geolocation=(), payment=(self "https://checkout.razorpay.com" "https://api.razorpay.com")'
   );
 
   // Cross-Origin Isolation Policies
@@ -50,8 +50,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   // Eliminates 'unsafe-eval' and 'unsafe-inline' from script-src in production
   const isProd = process.env.NODE_ENV === "production";
   const scriptSrc = isProd
-    ? "script-src 'self' https://checkout.razorpay.com https://api.razorpay.com"
-    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://api.razorpay.com";
+    ? "script-src 'self' https://checkout.razorpay.com https://api.razorpay.com https://cdn.razorpay.com"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://api.razorpay.com https://cdn.razorpay.com";
 
   res.setHeader(
     "Content-Security-Policy",

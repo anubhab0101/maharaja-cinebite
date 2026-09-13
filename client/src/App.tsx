@@ -20,9 +20,9 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/track" component={Home} />
       <Route path="/login" component={Login} />
-      <Route path="/kitchen" component={Kitchen} />
+      <Route path="/rasoi" component={Kitchen} />
       <Route path="/history" component={History} />
-      <Route path="/admin" component={Admin} />
+      <Route path="/maharaja" component={Admin} />
       <Route path="/qr-generator" component={SeatQrGenerator} />
       <Route path="/showtimes" component={Showtimes} />
       {["/privacy", "/retention", "/terms", "/refunds", "/delivery", "/cookies", "/support", "/payment-failed"].map(path => <Route key={path} path={path} component={ServiceInfo} />)}

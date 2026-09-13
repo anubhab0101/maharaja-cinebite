@@ -10,7 +10,7 @@ describe("manual showtime import validation", () => {
   it("recognizes only the requested dated venue", () => expect(validateListingUrl(url).date).toBe("2026-09-13"));
   it.each([url.replace("https:", "http:"), url.replace("in.bookmyshow.com", "in.bookmyshow.com.evil.test"), url.replace("MPDB", "OTHER"), url + "?redirect=http://localhost", url.replace("20260913", "20260230")])("rejects unsupported listing %s", value => expect(() => validateListingUrl(value)).toThrow());
   it("rejects movie links to arbitrary hosts or internal endpoints", () => {
-    expect(() => validateMovieUrl("http://127.0.0.1/admin")).toThrow();
+    expect(() => validateMovieUrl("http://127.0.0.1/maharaja")).toThrow();
     expect(() => validateMovieUrl("https://in.bookmyshow.com/api/private")).toThrow();
   });
   it.each([["2h 40m", 160], ["3h 17m", 197], ["2h", 120], ["150 min", 150]])("parses explicit runtime %s", (text, minutes) => expect(parseRuntime(text as string)).toBe(minutes));

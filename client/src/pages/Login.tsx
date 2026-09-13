@@ -5,7 +5,7 @@ import { Link } from "wouter";
 
 export default function Login() {
   const params = new URLSearchParams(window.location.search);
-  const redirectTarget = params.get("redirect") || "/admin";
+  const redirectTarget = params.get("redirect") || "/maharaja";
   const errorParam = params.get("error");
   const errorMessage = errorParam
     ? "Sign-in could not be completed. Please try again with an approved cinema account, or contact your manager."

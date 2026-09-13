@@ -100,7 +100,7 @@ describe("request trust boundaries", () => {
     expect(isLocalDevLoginAllowed(req)).toBe(false);
   });
   it.each(["//evil.example", "/\\evil.example", "/\nevil.example", "https://evil.example", null])("rejects unsafe login redirect %s", value => {
-    expect(safeRedirect(value)).toBe("/admin");
+    expect(safeRedirect(value)).toBe("/maharaja");
   });
-  it("preserves internal routes", () => expect(safeRedirect("/kitchen?tab=queue")).toBe("/kitchen?tab=queue"));
+  it("preserves internal routes", () => expect(safeRedirect("/rasoi?tab=queue")).toBe("/rasoi?tab=queue"));
 });
