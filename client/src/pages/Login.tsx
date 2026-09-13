@@ -16,7 +16,7 @@ export default function Login() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] flex flex-col justify-between px-4 py-8 text-[#dedad2] sm:px-6">
+    <main className="login-page min-h-screen bg-[#050505] flex flex-col justify-between px-4 py-8 text-[#dedad2] sm:px-6">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between">
         <Link href="/" className="flex items-center gap-2 text-sm text-[#85827b] transition hover:text-[#dedad2]">
           <ArrowLeft size={16} /> Back to CineBites
@@ -77,7 +77,7 @@ export default function Login() {
 
             <div className="relative my-4 text-center">
               <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 border-t border-white/10" />
-              <span className="relative bg-[#161616] px-3 text-[10px] uppercase tracking-widest text-white/40">
+              <span className="relative bg-[#161616] px-3 text-xs uppercase tracking-widest text-white/80">
                 Security Policy
               </span>
             </div>
@@ -100,7 +100,7 @@ export default function Login() {
         </div>
       </div>
 
-      <footer className="text-center text-xs text-white/40">
+      <footer className="min-h-8 text-center text-xs text-white/80">
         Maharaja Cinema • CineBites In-Seat System &copy; {new Date().getFullYear()}
       </footer>
     </main>

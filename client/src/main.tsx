@@ -8,8 +8,10 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 import { clearLegacyPreviewStorage } from "./lib/legacy-storage";
+import { loadOptionalFonts } from "./lib/fonts";
 
 clearLegacyPreviewStorage();
+loadOptionalFonts();
 
 const queryClient = new QueryClient();
 

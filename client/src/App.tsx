@@ -12,7 +12,7 @@ const SeatQrGenerator = lazy(() => import("@/pages/SeatQrGenerator"));
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+const Home = lazy(() => import("./pages/Home"));
 
 function Router() {
   return (
@@ -38,8 +38,8 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
-          <Suspense fallback={<p role="status">Loading page…</p>}><Router /></Suspense>
-          <footer className="bg-[#101010] px-5 py-6 text-sm text-white/70">
+          <div className="route-shell"><Suspense fallback={<div className="route-loading" role="status">Loading page…</div>}><Router /></Suspense></div>
+          <footer className="policy-footer bg-[#101010] px-5 py-6 text-sm text-white/80">
             <nav aria-label="Policies and support" className="flex flex-wrap justify-center gap-4">
               {[["Privacy", "/privacy"], ["Terms", "/terms"], ["Refunds & cancellation", "/refunds"], ["Delivery", "/delivery"], ["Browser storage", "/cookies"], ["Support", "/support"]].map(([label, href]) => <a className="underline" key={href} href={href}>{label}</a>)}
             </nav>
