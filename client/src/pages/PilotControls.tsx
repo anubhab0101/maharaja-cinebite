@@ -63,9 +63,10 @@ export function PilotRefunds() {
 }
 
 export function PilotSeatSetup() {
+  const utils = trpc.useUtils();
   const [screen, setScreen] = useState("");
   const [labels, setLabels] = useState("");
-  const save = trpc.admin.configureSeats.useMutation({ onSuccess: () => toast.success("Seat list saved"), onError: e => toast.error(e.message) });
+  const save = trpc.admin.configureSeats.useMutation({ onSuccess: () => { toast.success("Seat list saved"); void utils.admin.configuredSeats.invalidate(); }, onError: e => toast.error(e.message) });
   return <form className="admin-panel p-6 space-y-3" onSubmit={e => { e.preventDefault(); save.mutate({ screen, labels: labels.split(/[\s,]+/).filter(Boolean) }); }}>
     <h2>Verified cinema seat configuration</h2><p>Enter only theatre-confirmed seats. Screen name must exactly match the showtime/session. This adds seats; it never deletes existing seats.</p>
     <label>Screen name <input required maxLength={64} value={screen} onChange={e => setScreen(e.target.value)} /></label>

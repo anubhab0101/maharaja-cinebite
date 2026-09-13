@@ -31,6 +31,7 @@ import {
 } from "./cinebites-store";
 import { ORDER_STATUSES, STAFF_ROLES } from "@shared/cinebites";
 import { getShowtimeWindow, listShowtimeDates, listShowtimes } from "./showtimes";
+import { configuredSeats, manualShowtimeSchema, resolveSeatSession, saveManualShowtime } from "./showtime-management";
 import { generateSessionLinks, listSessionLinks, resolveSessionLink } from "./session-links";
 import { getPaymentProvider, isLivePaymentGatewayConfigured } from "./payment-provider";
 import { sanitizeText, checkRateLimit, getClientIp } from "./_core/security";
@@ -50,6 +51,7 @@ export const appRouter = router({
     }),
   }),
   catalog: router({
+    seatSession: publicProcedure.input(z.object({ token: z.string().min(20).max(128) })).query(({ input }) => resolveSeatSession(input.token)),
     menu: publicProcedure.query(async () => {
       const current = await listMenu();
       return current.length > 0 ? current : DEFAULT_MENU_ITEMS;
@@ -98,6 +100,7 @@ export const appRouter = router({
           instructions: z.string().max(200).optional(),
           showtimeId: z.number().int().positive().optional(),
           sessionToken: z.string().min(20).max(96).optional(),
+          seatToken: z.string().min(20).max(128).optional(),
           idempotencyKey: z.string().uuid(),
           consent: checkoutConsentSchema,
         })
@@ -122,13 +125,19 @@ export const appRouter = router({
           });
         }
 
-        if (process.env.NODE_ENV !== "test" && (!input.showtimeId || !input.sessionToken)) {
+        if (process.env.NODE_ENV !== "test" && (!input.showtimeId || (!input.sessionToken && !input.seatToken))) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid showtime before ordering." });
         }
         if (input.sessionToken) {
           const session = await resolveSessionLink(input.sessionToken);
           if (!session || session.showtimeId !== input.showtimeId || session.screenName !== input.screen) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "Scan the active cinema session QR before ordering." });
+          }
+        }
+        if (input.seatToken) {
+          const seat = await resolveSeatSession(input.seatToken);
+          if (!seat?.show || seat.show.id !== input.showtimeId || seat.screenName !== input.screen || seat.seat !== input.seat) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Your seat or show has changed. Scan your seat QR again." });
           }
         }
         // Never treat an unknown showtime as an open ordering window.
@@ -317,6 +326,9 @@ export const appRouter = router({
       .query(({ input }) => listOrderHistory(input)),
   }),
   admin: router({
+    showtimes: adminProcedure.query(() => listShowtimes()),
+    configuredSeats: adminProcedure.query(configuredSeats),
+    saveShowtime: adminProcedure.input(manualShowtimeSchema).mutation(({ input, ctx }) => saveManualShowtime(input, ctx.user!.id)),
     // Compatibility with the repository's existing order-delete screen. Direct
     // deletion is intentionally blocked by the reviewed retention workflow.
     deleteOrder: adminProcedure.input(z.object({ orderId: z.string(), developerCode: z.string() })).mutation((): { success: boolean; orderNumber: string } => { throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Direct deletion is disabled. Use the reviewed retention procedure; legal holds and payment records must be checked." }); }),

@@ -25,11 +25,14 @@ const AUDI_PRESETS = [
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 export default function SeatQrGenerator() {
+  const [permanent, setPermanent] = useState(true);
+  const configured = trpc.admin.configuredSeats.useQuery();
   const sessions = trpc.admin.sessionLinks.useQuery();
   const [selectedSessionToken, setSelectedSessionToken] = useState("");
   const [screen, setScreen] = useState("Audi 1 (Dolby Atmos)");
   const [customScreen, setCustomScreen] = useState("");
-  const [activeScreenName, setActiveScreenName] = useState("Audi 1");
+  const screenNames = Array.from(new Set(configured.data?.map(row => row.screenName) ?? []));
+  const activeScreenName = permanent ? (screenNames.includes(screen) ? screen : screenNames[0] || "") : customScreen.trim() || screen;
 
   const [mode, setMode] = useState<"grid" | "single" | "custom">("custom");
   const [startRow, setStartRow] = useState("A");
@@ -47,14 +50,6 @@ export default function SeatQrGenerator() {
   const [generating, setGenerating] = useState(false);
   const [qrItems, setQrItems] = useState<SeatQrItem[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (customScreen.trim()) {
-      setActiveScreenName(customScreen.trim());
-    } else {
-      setActiveScreenName(screen);
-    }
-  }, [screen, customScreen]);
 
   const computedSeats = useMemo(() => {
     const seats: string[] = [];
@@ -88,15 +83,19 @@ export default function SeatQrGenerator() {
 
   async function generateQrs() {
     const selectedSession = sessions.data?.find(s => s.token === selectedSessionToken);
-    if (!selectedSession) { toast.error("Select a valid showtime session first"); return; }
-    if (computedSeats.length > 1000) { toast.error("Maximum 1000 seats per batch"); return; }
+    if (!permanent && !selectedSession) { toast.error("Select a valid showtime session first"); return; }
+    const targetScreen = permanent ? activeScreenName : selectedSession!.screenName;
+    const savedSeats = configured.data?.filter(row => row.screenName === targetScreen) ?? [];
+    const targetSeats = permanent ? savedSeats.map(row => row.seat) : computedSeats;
+    if (!targetSeats.length || targetSeats.some(seat => !savedSeats.some(row => row.seat === seat))) { toast.error("Configure these seats for the selected screen first, then refresh seat configuration."); return; }
+    if (targetSeats.length > 1000) { toast.error("Maximum 1000 seats per batch"); return; }
     setGenerating(true);
     const origin = window.location.origin;
     const items: SeatQrItem[] = [];
 
     try {
-      for (const seat of computedSeats) {
-        const url = `${origin}/?session=${encodeURIComponent(selectedSession.token)}&seat=${encodeURIComponent(seat)}`;
+      for (const seat of targetSeats) {
+        const url = permanent ? `${origin}/?seatToken=${encodeURIComponent(savedSeats.find(row => row.seat === seat)!.token)}` : `${origin}/?session=${encodeURIComponent(selectedSession!.token)}&seat=${encodeURIComponent(seat)}`;
         const qrDataUrl = await QRCode.toDataURL(url, {
           width: 320,
           margin: 1,
@@ -107,8 +106,8 @@ export default function SeatQrGenerator() {
           },
         });
         items.push({
-          id: `${activeScreenName}_${seat}`,
-          screen: activeScreenName,
+          id: `${targetScreen}_${seat}`,
+          screen: targetScreen,
           seat,
           url,
           qrDataUrl,
@@ -126,7 +125,7 @@ export default function SeatQrGenerator() {
 
   // Generate only on explicit action; a session/seat edit must not leave stale
   // printable stickers from a previous show.
-  useEffect(() => { setQrItems([]); }, [selectedSessionToken, computedSeats, activeScreenName]);
+  useEffect(() => { setQrItems([]); }, [selectedSessionToken, computedSeats, activeScreenName, permanent, configured.data]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return qrItems;
@@ -169,13 +168,21 @@ export default function SeatQrGenerator() {
 
   return (
     <div className="space-y-6">
-      <label className="print:hidden block">Showtime session (required)
+      <div className="print:hidden space-y-3 rounded-xl border border-white/20 p-4">
+        <label className="flex gap-2"><input type="checkbox" checked={permanent} onChange={e => setPermanent(e.target.checked)} />Permanent seat stickers (recommended)</label>
+        <p>Print once and keep on the seats. The current movie comes from Movies &amp; showtimes. Keep the same domain, screen and seat records so stickers remain valid.</p>
+        <button className="secondary-admin-button" onClick={() => void configured.refetch()}>Refresh seat configuration</button>
+        {configured.isLoading && <p>Loading configured seats…</p>}
+        {configured.isError && <p role="alert">Could not load configured seats. Please refresh.</p>}
+        {!configured.isLoading && !configured.isError && !screenNames.length && <p>Save your screen and seat configuration above before generating stickers.</p>}
+      </div>
+      {!permanent && <label className="print:hidden block">Showtime session (required)
         <select value={selectedSessionToken} onChange={e => { setSelectedSessionToken(e.target.value); const s = sessions.data?.find(s => s.token === e.target.value); if (s) { setCustomScreen(s.screenName); setScreen("custom"); } }}>
           <option value="">Select a configured showtime</option>
           {sessions.data?.map(s => <option key={s.token} value={s.token}>{s.screenName} · {s.show.showDate} · {s.show.startTime} · {s.show.movieTitle}</option>)}
         </select>
         <p>These stickers are show-specific. Use only theatre-confirmed seats saved in seat configuration; replace stickers for the next show.</p>
-      </label>
+      </label>}
       {/* Controls Card - Hidden during Print */}
       <div className="print:hidden rounded-2xl border border-white/10 bg-[#0d0d0c] p-6 shadow-xl space-y-6 text-[#dedad2]">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
@@ -187,7 +194,7 @@ export default function SeatQrGenerator() {
               Cinema Seat QR Code Generator
             </h2>
             <p className="text-sm text-[#85827b] mt-1">
-              Generate show-specific QR stickers. The server validates the session, screen and configured seat before checkout.
+              Generate permanent seat stickers or temporary show-specific QRs. Only saved, configured seats can be printed.
             </p>
           </div>
 
@@ -217,7 +224,7 @@ export default function SeatQrGenerator() {
               Step 1: Select Screen / Audi
             </label>
             <div className="flex flex-wrap gap-2">
-              {AUDI_PRESETS.map((p) => (
+              {(permanent ? screenNames : AUDI_PRESETS).map((p) => (
                 <button
                   key={p}
                   type="button"
@@ -226,7 +233,7 @@ export default function SeatQrGenerator() {
                     setCustomScreen("");
                   }}
                   className={`rounded-lg px-3 py-1.5 text-xs transition ${
-                    screen === p && !customScreen
+                    activeScreenName === p
                       ? "bg-[#d46b38] text-[#160b06] font-semibold"
                       : "border border-white/10 bg-[#141414] text-[#85827b] hover:text-[#dedad2]"
                   }`}
@@ -235,17 +242,17 @@ export default function SeatQrGenerator() {
                 </button>
               ))}
             </div>
-            <input
+            {!permanent && <input
               type="text"
               value={customScreen}
               onChange={(e) => setCustomScreen(e.target.value)}
               placeholder="Or type custom screen (e.g. Audi 5 IMAX)"
               className="w-full rounded-xl border border-white/10 bg-[#050505] px-3 py-2 text-sm text-[#dedad2] outline-none focus:border-[#d46b38]"
-            />
+            />}
           </div>
 
           {/* Step 2: Seat Range */}
-          <div className="space-y-3">
+          {permanent ? <div className="space-y-3"><p>Saved seat layout</p><p>{configured.data?.filter(row => row.screenName === activeScreenName).length ?? 0} configured seats will be printed for {activeScreenName || "your screen"}.</p><p className="text-sm text-white/70">To add seats, use seat configuration above and then Refresh seat configuration.</p></div> : <div className="space-y-3">
             <label className="block text-xs font-mono uppercase tracking-wider text-[#85827b]">
               Step 2: Seat Layout Mode
             </label>
@@ -404,6 +411,7 @@ export default function SeatQrGenerator() {
             )}
           </div>
 
+          }
           {/* Step 3: Sticker Appearance & Density */}
           <div className="space-y-3 flex flex-col justify-between">
             <div>
@@ -466,11 +474,11 @@ export default function SeatQrGenerator() {
             <button
               type="button"
               onClick={generateQrs}
-              disabled={generating || computedSeats.length === 0}
+              disabled={generating || configured.isLoading || configured.isError || (permanent ? !activeScreenName : computedSeats.length === 0)}
               className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#d46b38] py-3 text-sm font-semibold text-[#160b06] shadow-lg shadow-[#d46b38]/20 transition hover:bg-[#e57e4c] active:scale-[0.98] disabled:opacity-50 mt-4"
             >
               <RefreshCw size={16} className={generating ? "animate-spin" : ""} />
-              {generating ? "Generating QRs..." : `Generate ${computedSeats.length} QR Stickers`}
+              {generating ? "Generating QRs..." : permanent ? "Generate permanent seat stickers" : `Generate ${computedSeats.length} QR Stickers`}
             </button>
           </div>
         </div>

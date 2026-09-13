@@ -36,11 +36,12 @@ import { hasStaffRole, rupees } from "@shared/cinebites";
 import ShiftSummary from "@/pages/ShiftSummary";
 import StaffManagement from "@/pages/StaffManagement";
 import SessionLinks from "@/pages/SessionLinks";
+import ShowtimeManager from "@/pages/ShowtimeManager";
 import SeatQrGenerator from "@/pages/SeatQrGenerator";
 import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 import MenuCatalog from "./MenuCatalog";
 
-type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "sessions" | "seatQrs" | "audit";
+type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "showtimes" | "sessions" | "seatQrs" | "audit";
 
 const tabs: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -50,6 +51,7 @@ const tabs: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "refunds", label: "Refunds", icon: WalletCards },
   { id: "staff", label: "Staff", icon: Users },
   { id: "sessions", label: "Session Links", icon: Calendar },
+  { id: "showtimes", label: "Movies & showtimes", icon: Calendar },
   { id: "seatQrs", label: "Seat QRs", icon: QrCode },
   { id: "audit", label: "Audit log", icon: ShieldCheck },
 ];
@@ -204,7 +206,8 @@ export default function Admin() {
         )}
         {tab === "refunds" && <PilotRefunds />}
         {tab === "staff" && <StaffManagement />}
-        {tab === "sessions" && <SessionLinks />}
+        {tab === "sessions" && <><p className="mb-4 text-sm text-white/80">For permanent armrest stickers, use Seat QRs. These session links are optional, temporary links for a particular show. Manage the schedule in Movies &amp; showtimes.</p><SessionLinks /></>}
+        {tab === "showtimes" && <ShowtimeManager />}
         {tab === "seatQrs" && <><PilotSeatSetup /><SeatQrGenerator /></>}
         {tab === "audit" && <Audit logs={audit.data ?? []} />}
       </main>

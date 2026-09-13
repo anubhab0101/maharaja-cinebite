@@ -938,7 +938,9 @@ export default function Home() {
 
   const params = new URLSearchParams(window.location.search);
   const sessionToken = params.get("session") || "";
-  const paramSeat = params.get("seat")?.trim().toUpperCase() || "";
+  const seatToken = params.get("seatToken") || "";
+  const seatSession = trpc.catalog.seatSession.useQuery({ token: seatToken || "invalid-seat-token-value" }, { enabled: Boolean(seatToken), refetchInterval: 15000 });
+  const paramSeat = seatToken ? seatSession.data?.seat || "" : params.get("seat")?.trim().toUpperCase() || "";
   const paramScreen = params.get("screen")?.trim() || "";
 
   useEffect(() => {
@@ -971,9 +973,9 @@ export default function Home() {
     }
   }, []);
   const session = trpc.catalog.session.useQuery({ token: sessionToken || "invalid-session-token" }, { enabled: sessionToken.length > 0 });
-  const showtimeId = session.data?.show.id ?? (Number(params.get("showtimeId")) || 0);
+  const showtimeId = seatToken ? seatSession.data?.show?.id ?? 0 : session.data?.show.id ?? (Number(params.get("showtimeId")) || 0);
   const orderingWindow = trpc.catalog.orderingWindow.useQuery({ showtimeId }, { enabled: showtimeId > 0, refetchInterval: 15000 });
-  const orderingOpen = (!sessionToken || Boolean(session.data)) && (showtimeId > 0
+  const orderingOpen = (!seatToken || Boolean(seatSession.data?.show)) && (!sessionToken || Boolean(session.data)) && (showtimeId > 0
     ? orderingWindow.data?.orderingEnabled === true
     : import.meta.env.DEV);
 
@@ -1078,7 +1080,7 @@ export default function Home() {
         itemId: item.id,
         quantity: item.quantity,
       }));
-      const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken });
+      const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken, seatToken });
       if (checkoutRequest.current?.fingerprint !== fingerprint) {
         checkoutRequest.current = { fingerprint, key: crypto.randomUUID() };
       }
@@ -1094,6 +1096,7 @@ export default function Home() {
         items: orderItems,
         showtimeId: showtimeId > 0 ? showtimeId : undefined,
         sessionToken: sessionToken || undefined,
+        seatToken: seatToken || undefined,
         idempotencyKey: checkoutRequest.current.key,
         consent: checkoutConsentSchema.parse({ policyVersion: POLICY_VERSION, terms: accepted[0], privacy: accepted[1], refund: accepted[2], cutoff: accepted[3] }),
       });
@@ -1183,8 +1186,8 @@ export default function Home() {
     }
   }
 
-  const detectedScreen = session.data?.screenName || orderingWindow.data?.screenName || paramScreen || "Maharaja Screen 01";
-  const detectedMovie = session.data?.show.movieTitle;
+  const detectedScreen = seatSession.data?.screenName || session.data?.screenName || orderingWindow.data?.screenName || paramScreen || "Maharaja Screen 01";
+  const detectedMovie = seatSession.data?.show?.movieTitle || session.data?.show.movieTitle;
 
   return (
     <div className="app-shell">
@@ -1221,8 +1224,10 @@ export default function Home() {
                     ? "15 min kitchen break"
                     : orderingWindow.data.state === "CUTOFF"
                     ? "Ordering closed"
+                    : orderingWindow.data.state === "FINISHED"
+                    ? "This show has finished"
                     : "Ordering starts 15 min after showtime"
-                  : orderingOpen ? "Ordering open" : "Select a valid showtime to order"}
+                  : orderingOpen ? "Ordering open" : seatToken ? seatSession.isError ? "Could not load the cinema schedule. Please retry." : seatSession.isLoading ? "Checking current show…" : !seatSession.data ? "Seat QR is invalid or inactive" : "No current confirmed show. Ordering is unavailable." : "Scan your seat QR to order"}
               </div>
             </div>
             <CategoryTabs active={active} setActive={setActive} />
@@ -1262,7 +1267,10 @@ export default function Home() {
         </>
       )}
       {view === "checkout" && (
+        <>
+        <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} />
         <Checkout
+          key={`${detectedScreen}:${paramSeat}:${showtimeId}`}
           cart={cart}
           total={total}
           accepted={accepted}
@@ -1273,6 +1281,7 @@ export default function Home() {
           onBack={() => setView("menu")}
           onPaid={handleCompletePayment}
         />
+        </>
       )}
       {view === "tracking" && activeOrder && (
         <Tracking
