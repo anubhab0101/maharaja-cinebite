@@ -69,6 +69,10 @@ export function serveStatic(app: Express) {
     console.log(`[Production] Serving static client bundle from: ${distPath}`);
   }
 
+  // Vite filenames include content hashes; repeat visits can reuse these files.
+  app.use("/assets", express.static(path.join(distPath, "assets"), {
+    maxAge: "1y", immutable: true,
+  }));
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist

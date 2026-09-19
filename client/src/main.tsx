@@ -13,7 +13,11 @@ import { loadOptionalFonts } from "./lib/fonts";
 clearLegacyPreviewStorage();
 loadOptionalFonts();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({ defaultOptions: {
+  queries: { refetchOnReconnect: "always", retry: 1 },
+  // Do not silently queue payment/staff actions for replay after reconnect.
+  mutations: { networkMode: "always", retry: false },
+} });
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -51,6 +55,9 @@ const trpcClient = trpc.createClient({
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",
+          signal: init?.signal
+            ? AbortSignal.any([init.signal, AbortSignal.timeout(30000)])
+            : AbortSignal.timeout(30000),
         });
       },
     }),

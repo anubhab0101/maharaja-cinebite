@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import { readCart, saveCart } from "@/lib/cartStorage";
+import { checkoutAttempt, clearCheckoutAttempt } from "@/lib/checkoutAttempt";
 import {
   ArrowRight,
   Check,
@@ -202,7 +204,7 @@ function Header({
   );
 }
 
-function CinemaContext({ screen, seat, showTitle }: { screen?: string; seat?: string; showTitle?: string }) {
+function CinemaContext({ screen, seat, showTitle, orderingOpen }: { screen?: string; seat?: string; showTitle?: string; orderingOpen: boolean }) {
   return (
     <section className="cinema-context">
       <div className="flex items-center gap-3">
@@ -215,9 +217,9 @@ function CinemaContext({ screen, seat, showTitle }: { screen?: string; seat?: st
       <div className="context-divider" />
       <div className="flex items-center gap-2 text-[#a8a6a0]">
         <Clock3 size={15} />
-        <span className="text-sm">{seat ? `${screen} • Seat ${seat}` : screen ? `Bound to ${screen}` : "Seat QR verified"}</span>
+        <span className="text-sm">{seat ? `${screen} • Seat ${seat}` : "Scan your seat QR to select your cinema session"}</span>
       </div>
-      <div className="verified-chip"><ShieldCheck size={14} /> Ready to order</div>
+      <div className="verified-chip"><ShieldCheck size={14} /> {orderingOpen ? "Ready to order" : "Ordering unavailable"}</div>
     </section>
   );
 }
@@ -905,6 +907,7 @@ export default function Home() {
   const [view, setView] = useState<View>("menu");
   const [active, setActive] = useState<Category>("Popular");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const cartRestored = useRef(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accepted, setAccepted] = useState(policies.map(() => false));
   const [activeOrder, setActiveOrder] = useState<SavedOrder | null>(null);
@@ -956,7 +959,7 @@ export default function Home() {
   const orderingWindow = trpc.catalog.orderingWindow.useQuery({ showtimeId }, { enabled: showtimeId > 0, refetchInterval: 15000 });
   const orderingOpen = (!seatToken || Boolean(seatSession.data?.show)) && (!sessionToken || Boolean(session.data)) && (showtimeId > 0
     ? orderingWindow.data?.orderingEnabled === true
-    : import.meta.env.DEV);
+    : false);
 
   // Real backend menu catalog sync
   const catalogQuery = trpc.catalog.menu.useQuery();
@@ -982,6 +985,19 @@ export default function Home() {
       };
     });
   }, [catalogQuery.data]);
+
+  useEffect(() => {
+    if (!catalogQuery.data || cartRestored.current) return;
+    cartRestored.current = true;
+    setCart(readCart().flatMap(line => {
+      const item = menuList.find(item => item.id === line.id);
+      return item ? [{ ...item, quantity: line.quantity }] : [];
+    }));
+  }, [catalogQuery.data, menuList]);
+
+  useEffect(() => {
+    if (cartRestored.current) saveCart(cart);
+  }, [cart]);
 
   const visibleItems = useMemo(
     () => (active === "Popular" ? menuList.slice(0, 4) : menuList.filter((item) => item.category === active)),
@@ -1012,6 +1028,7 @@ export default function Home() {
 
   function startCheckout() {
     toast.dismiss();
+    if (!navigator.onLine) { toast.error("Reconnect to the internet before checkout."); return; }
     if (!orderingOpen) {
       toast.error("Ordering is currently closed", {
         description: "Ordering opens 15 minutes after the show starts and closes 30 minutes before it ends.",
@@ -1024,6 +1041,7 @@ export default function Home() {
   }
 
   function finalizeOrderSuccess(order: { id: string; orderNumber: string; totalPaise: number; screen: string; seat: string }, customerName: string, phone: string) {
+    clearCheckoutAttempt();
     const phoneClean = phone.replace(/\D/g, "");
     const phoneLast4 = phoneClean.slice(-4);
 
@@ -1050,6 +1068,7 @@ export default function Home() {
   }
 
   async function handleCompletePayment(details: { name: string; phone: string; seat: string; screen: string }) {
+    if (!navigator.onLine) { toast.error("Reconnect before paying. Check tracking first if money was deducted."); return; }
     if (checkoutBusy.current) return;
     checkoutBusy.current = true;
     setPaymentBusy(true);
@@ -1061,7 +1080,7 @@ export default function Home() {
       }));
       const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken, seatToken });
       if (checkoutRequest.current?.fingerprint !== fingerprint) {
-        checkoutRequest.current = { fingerprint, key: crypto.randomUUID() };
+        checkoutRequest.current = await checkoutAttempt(fingerprint);
       }
 
       // Contact the payment provider only after the user initiates checkout.
@@ -1122,8 +1141,11 @@ export default function Home() {
               finalizeOrderSuccess(res.order, details.name, details.phone);
               checkoutRequest.current = null;
             } catch (verifErr: any) {
-              toast.error("Payment verification failed", {
-                description: verifErr.message || "Untrusted payment signature.",
+              setActiveOrder(getActiveOrder());
+              setBannerDismissed(false);
+              setView("tracking");
+              toast.warning("Checking payment confirmation", {
+                description: "Do not pay again if money was deducted. Your order tracking will update when confirmation arrives.",
               });
             } finally { releaseCheckout(); }
           },
@@ -1165,7 +1187,7 @@ export default function Home() {
     }
   }
 
-  const detectedScreen = seatSession.data?.screenName || session.data?.screenName || orderingWindow.data?.screenName || paramScreen || "Maharaja Screen 01";
+  const detectedScreen = seatSession.data?.screenName || session.data?.screenName || orderingWindow.data?.screenName || paramScreen || "";
   const detectedMovie = seatSession.data?.show?.movieTitle || session.data?.show.movieTitle;
 
   return (
@@ -1184,7 +1206,7 @@ export default function Home() {
       />
       {view === "menu" && (
         <>
-          <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} />
+          <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} orderingOpen={orderingOpen} />
           <Hero />
           <main className="menu-main" id="menu">
             <div className="menu-header">
@@ -1247,7 +1269,7 @@ export default function Home() {
       )}
       {view === "checkout" && (
         <>
-        <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} />
+        <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} orderingOpen={orderingOpen} />
         <Checkout
           key={`${detectedScreen}:${paramSeat}:${showtimeId}`}
           cart={cart}

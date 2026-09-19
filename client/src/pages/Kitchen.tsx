@@ -113,8 +113,12 @@ export default function Kitchen() {
   });
 
   useEffect(() => {
+    if (!user) return;
     const events = new EventSource("/api/events");
-    events.addEventListener("ready", () => setConnected(true));
+    events.addEventListener("ready", () => {
+      setConnected(true);
+      void queue.refetch();
+    });
     events.addEventListener("order.created", () => {
       setLastEvent(new Date().toLocaleTimeString());
       void queue.refetch();
@@ -127,7 +131,7 @@ export default function Kitchen() {
     events.addEventListener("order.statusChanged", () => { setLastEvent(new Date().toLocaleTimeString()); void queue.refetch(); });
     events.onerror = () => setConnected(false);
     return () => events.close();
-  }, [alerts, queue.refetch]);
+  }, [alerts, queue.refetch, user?.id]);
 
   const topSellingNames = useMemo(() => {
     const counts = new Map<string, number>();

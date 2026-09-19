@@ -1,4 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
+import ConnectionNotice from "@/components/ConnectionNotice";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense } from "react";
@@ -38,6 +39,7 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
+          <ConnectionNotice />
           <div className="route-shell"><Suspense fallback={<div className="route-loading" role="status">Loading page…</div>}><Router /></Suspense></div>
           <footer className="policy-footer bg-[#101010] px-5 py-6 text-sm text-white/80">
             <nav aria-label="Policies and support" className="flex flex-wrap justify-center gap-4">
