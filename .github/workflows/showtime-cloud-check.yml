@@ -1,0 +1,34 @@
+name: Showtime cloud access check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/showtime-cloud-check.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    if: github.repository == 'anubhab0101/maharaja-cinebite'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: |
+          npm install --global pnpm@10.34.5
+          pnpm install --frozen-lockfile
+      - name: Install public browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Preview tomorrow from cloud without database credentials
+        shell: bash
+        run: |
+          DAY=$(TZ=Asia/Kolkata date -d tomorrow +%Y%m%d)
+          pnpm showtimes:sync --url "https://in.bookmyshow.com/cinemas/bhubaneswar/maharaja-christie-4k-dolby-atmos-64-channel/buytickets/MPDB/$DAY"
