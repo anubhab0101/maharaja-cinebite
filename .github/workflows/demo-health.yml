@@ -1,0 +1,70 @@
+name: CineBite demo health session
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Bounded demo monitoring duration (runner must start first; not an uptime guarantee)'
+        required: true
+        default: '60'
+        type: choice
+        options: ['30', '60', '120', '300']
+
+permissions: {}
+
+concurrency:
+  group: cinebite-demo-health
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: github.repository == 'anubhab0101/maharaja-cinebite'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      SESSION_MINUTES: ${{ inputs.minutes }}
+    steps:
+      - name: Check application and database every four minutes
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$SESSION_MINUTES" in
+            30|60|120|300) ;;
+            *) echo '::error::Invalid monitoring duration'; exit 1 ;;
+          esac
+          deadline=$((SECONDS + SESSION_MINUTES * 60))
+          failed_cycles=0
+          checks=0
+          echo "Monitoring started at $(date -u +%FT%TZ) for $SESSION_MINUTES minutes."
+          echo 'This is temporary monitoring, not a Render uptime guarantee.'
+          while true; do
+            healthy=false
+            for attempt in 1 2 3; do
+              if curl --silent --show-error --fail \
+                --proto '=https' --connect-timeout 10 --max-time 45 \
+                --header 'Cache-Control: no-cache' \
+                "https://cinebite.store/health?probe=${GITHUB_RUN_ID}-${checks}-${attempt}-$(date +%s)" \
+                --output "$RUNNER_TEMP/cinebite-demo-health.json" \
+                && jq -e '.ok == true and .service == "cinebites"' \
+                  "$RUNNER_TEMP/cinebite-demo-health.json" >/dev/null; then
+                healthy=true
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then sleep 15; fi
+            done
+            checks=$((checks + 1))
+            if [ "$healthy" = true ]; then
+              echo "$(date -u +%FT%TZ) check=$checks application/database healthy"
+            else
+              failed_cycles=$((failed_cycles + 1))
+              echo "::error::$(date -u +%FT%TZ) Health check failed after three attempts; continuing recovery checks."
+            fi
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then break; fi
+            sleep_seconds=240
+            if [ "$remaining" -lt 240 ]; then sleep_seconds=$remaining; fi
+            sleep "$sleep_seconds"
+          done
+          echo "Completed $checks health cycles; $failed_cycles failed cycles." >> "$GITHUB_STEP_SUMMARY"
+          echo 'Monitoring has ended. Free Render idle sleep is still possible.' >> "$GITHUB_STEP_SUMMARY"
+          test "$failed_cycles" -eq 0
