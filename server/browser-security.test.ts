@@ -32,7 +32,7 @@ describe("browser security hardening", () => {
   });
   it("allows zoom and keeps privacy metadata in the document head", () => {
     const html = readFileSync(new URL("../client/index.html", import.meta.url), "utf8");
-    expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1"');
+    expect(html).toContain('name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"');
     expect(html).not.toMatch(/maximum-scale|user-scalable/);
     expect(html.split("</head>")[0]).toContain('name="referrer" content="no-referrer"');
   });

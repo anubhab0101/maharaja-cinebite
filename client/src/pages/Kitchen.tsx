@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Bell, Check, ChefHat, Clock3, LogOut, RefreshCw, Search, ShieldAlert, Sparkles, Undo2, UtensilsCrossed, Volume2, Wifi, WifiOff, X } from "lucide-react";
+import { AlertTriangle, Check, ChefHat, Clock3, LogOut, RefreshCw, Search, ShieldAlert, Sparkles, Undo2, UtensilsCrossed, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Link } from "wouter";
 import { hasStaffRole, KitchenOrder, ORDER_STATUSES, OrderStatus, rupees } from "@shared/cinebites";
-import { isAudioReady, playKitchenChime, testKitchenAudio, unlockKitchenAudio } from "@/lib/kitchenAudio";
+import StaffAlerts from "@/components/StaffAlerts";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
 const columns: { status: OrderStatus; label: string; tone: string }[] = [
@@ -21,7 +21,7 @@ export default function Kitchen() {
   const staffTheme = useStaffTheme();
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login?redirect=/rasoi" });
   const utils = trpc.useUtils();
-  const queue = trpc.kitchen.queue.useQuery(undefined, { refetchInterval: 30000 });
+  const queue = trpc.kitchen.queue.useQuery(undefined);
   const menuQuery = trpc.kitchen.menu.useQuery(undefined, { refetchInterval: 15000, refetchOnWindowFocus: true });
   const setAvailability = trpc.kitchen.setAvailability.useMutation({
     onSuccess: (_res, variables) => {
@@ -38,28 +38,9 @@ export default function Kitchen() {
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const undoTimer = useRef<number | null>(null);
   const snapshots = useRef(new Map<string, KitchenOrder[] | undefined>());
-  const [alerts, setAlerts] = useState(true);
-  const [audioUnlocked, setAudioUnlocked] = useState(isAudioReady());
-  const [connected, setConnected] = useState(false);
-  const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [queueView, setQueueView] = useState<"priority" | "wait">("priority");
   const [queueFilter, setQueueFilter] = useState<"all" | "urgent">("all");
 
-  useEffect(() => {
-    const handleGesture = () => {
-      unlockKitchenAudio().then((unlocked) => {
-        if (unlocked) setAudioUnlocked(true);
-      });
-    };
-    window.addEventListener("click", handleGesture, { passive: true });
-    window.addEventListener("keydown", handleGesture, { passive: true });
-    window.addEventListener("touchstart", handleGesture, { passive: true });
-    return () => {
-      window.removeEventListener("click", handleGesture);
-      window.removeEventListener("keydown", handleGesture);
-      window.removeEventListener("touchstart", handleGesture);
-    };
-  }, []);
 
   const clearUndo = () => {
     setUndoAction(null);
@@ -112,26 +93,7 @@ export default function Kitchen() {
     },
   });
 
-  useEffect(() => {
-    if (!user) return;
-    const events = new EventSource("/api/events");
-    events.addEventListener("ready", () => {
-      setConnected(true);
-      void queue.refetch();
-    });
-    events.addEventListener("order.created", () => {
-      setLastEvent(new Date().toLocaleTimeString());
-      void queue.refetch();
-      if (alerts) {
-        playKitchenChime();
-        toast("New paid order received", { description: "Kitchen queue updated in real time." });
-        if ("Notification" in window && Notification.permission === "granted") new Notification("CineBites: New paid order", { body: "A new order is ready for the kitchen queue." });
-      }
-    });
-    events.addEventListener("order.statusChanged", () => { setLastEvent(new Date().toLocaleTimeString()); void queue.refetch(); });
-    events.onerror = () => setConnected(false);
-    return () => events.close();
-  }, [alerts, queue.refetch, user?.id]);
+  useEffect(() => () => { if (undoTimer.current) window.clearTimeout(undoTimer.current); }, []);
 
   const topSellingNames = useMemo(() => {
     const counts = new Map<string, number>();
@@ -155,17 +117,6 @@ export default function Kitchen() {
       .sort((a, b) => queueView === "wait" ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() : Number(b.priority === "HIGH") - Number(a.priority === "HIGH") || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return Object.fromEntries(columns.map(({ status }) => [status, filtered.filter((order) => order.status === status)]));
   }, [queue.data, queueFilter, queueView]);
-  const toggleAlerts = async () => {
-    const next = !alerts;
-    setAlerts(next);
-    const unlocked = await unlockKitchenAudio();
-    setAudioUnlocked(unlocked);
-    if (next && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
-    if (next) {
-      playKitchenChime();
-      toast.success("Kitchen alerts enabled", { description: "Audible chime and browser notifications are active." });
-    }
-  };
   const submitStatus = (order: KitchenOrder, status: OrderStatus) => {
     const previous = utils.kitchen.queue.getData(undefined);
     snapshots.current.set(order.id, previous);
@@ -216,14 +167,6 @@ export default function Kitchen() {
           </div>
         </div>
 
-        <div className="staff-header-center">
-          <span className={`connection-pill ${connected ? "online" : "offline"}`}>
-            {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
-            {connected ? "Live updates on" : "Reconnecting"}
-          </span>
-          {lastEvent && <span className="last-event">Last event {lastEvent}</span>}
-        </div>
-
         <div className="staff-actions">
           <StaffThemeToggle {...staffTheme} />
           <button
@@ -232,20 +175,6 @@ export default function Kitchen() {
             title="Manage Menu & Item Availability"
           >
             <UtensilsCrossed size={15} /> Menu Stock
-          </button>
-          <button
-            className="staff-icon-button"
-            title="Test alert chime audio"
-            onClick={async () => {
-              const ready = await testKitchenAudio();
-              setAudioUnlocked(ready);
-              toast.success("Kitchen chime tested", { description: "High-penetration alert chime played." });
-            }}
-          >
-            <Volume2 size={15} />
-          </button>
-          <button className={`alert-toggle ${alerts ? "active" : ""}`} onClick={() => void toggleAlerts()}>
-            <Bell size={15} /> {alerts ? "Alerts on" : "Alerts off"}
           </button>
           <span className="staff-user">{user?.name || "Kitchen staff"}</span>
           <button className="staff-icon-button" onClick={() => logout()} aria-label="Sign out">
@@ -257,7 +186,7 @@ export default function Kitchen() {
       <main className="kitchen-main">
         <div className="staff-page-intro">
           <div>
-            <p className="staff-eyebrow">Friday • 07 Sep 2026</p>
+            <p className="staff-eyebrow">{new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "short", year: "numeric" })}</p>
             <h1>Service queue</h1>
             <p>Keep the snacks moving. Only paid orders appear here.</p>
           </div>
@@ -272,49 +201,7 @@ export default function Kitchen() {
           </div>
         </div>
 
-        {alerts && !audioUnlocked && (
-          <div
-            className="audio-unlock-banner cursor-pointer"
-            onClick={async () => {
-              const ready = await testKitchenAudio();
-              setAudioUnlocked(ready);
-              toast.success("Kitchen audio active", { description: "Audible chime will ring on every new paid order." });
-            }}
-            style={{
-              background: "rgba(249, 115, 22, 0.12)",
-              border: "1px solid rgba(249, 115, 22, 0.3)",
-              borderRadius: "0.75rem",
-              padding: "0.75rem 1rem",
-              marginBottom: "1rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "0.75rem",
-              color: "#fb923c",
-              fontSize: "0.85rem",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <Volume2 size={16} />
-              <span><strong>Browser audio is sleeping:</strong> Tap or click anywhere to activate kitchen order chime.</span>
-            </div>
-            <button
-              style={{
-                background: "#ea580c",
-                color: "#ffffff",
-                border: "none",
-                borderRadius: "0.375rem",
-                padding: "0.3rem 0.75rem",
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Tap to Enable Sound
-            </button>
-          </div>
-        )}
+        <StaffAlerts />
 
         <div className="queue-controls">
           <span className="queue-controls-label">Show</span>

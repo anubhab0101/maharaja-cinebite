@@ -9,9 +9,11 @@ import { startLogin } from "./const";
 import "./index.css";
 import { clearLegacyPreviewStorage } from "./lib/legacy-storage";
 import { loadOptionalFonts } from "./lib/fonts";
+import { registerPwa } from "./lib/pwa";
 
 clearLegacyPreviewStorage();
 loadOptionalFonts();
+if (import.meta.env.PROD) void registerPwa();
 
 const queryClient = new QueryClient({ defaultOptions: {
   queries: { refetchOnReconnect: "always", retry: 1 },

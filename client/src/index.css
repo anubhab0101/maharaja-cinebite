@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./staff-light.css";
+@import "./mobile-staff.css";
 
 :root {
   --background: #050505;

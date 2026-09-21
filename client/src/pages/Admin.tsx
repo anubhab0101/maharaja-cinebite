@@ -41,6 +41,9 @@ import SeatQrGenerator from "@/pages/SeatQrGenerator";
 import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 import MenuCatalog from "./MenuCatalog";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
+import StaffAlerts from "@/components/StaffAlerts";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 
 type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "showtimes" | "sessions" | "seatQrs" | "audit";
 
@@ -61,6 +64,7 @@ export default function Admin() {
   const staffTheme = useStaffTheme();
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
   const [tab, setTab] = useState<Tab>("overview");
+  const [mobileMenu, setMobileMenu] = useState(false);
   const stats = trpc.admin.stats.useQuery();
   const orders = trpc.admin.orders.useQuery();
   const menu = trpc.admin.menu.useQuery();
@@ -148,7 +152,6 @@ export default function Admin() {
             >
               <Icon size={16} />
               {label}
-              {id === "refunds" && <span className="nav-badge">1</span>}
             </button>
           ))}
         </nav>
@@ -192,6 +195,7 @@ export default function Admin() {
           </div>
         </header>
 
+        <StaffAlerts />
         {tab === "overview" && <PilotOverview />}
         {tab === "shift" && <ShiftSummary />}
         {tab === "orders" && (
@@ -216,6 +220,18 @@ export default function Admin() {
         {tab === "seatQrs" && <><SeatQrGenerator /><details className="print:hidden mt-6"><summary className="cursor-pointer text-sm text-white/70">Advanced: add seat codes manually</summary><PilotSeatSetup /></details></>}
         {tab === "audit" && <Audit logs={audit.data ?? []} />}
       </main>
+      <nav className="mobile-staff-nav print:hidden" aria-label="Mobile cinema management">
+        {tabs.filter(item => ['overview', 'orders', 'menu', 'showtimes'].includes(item.id)).map(({ id, label, icon: Icon }) => <button key={id} aria-current={tab === id ? 'page' : undefined} onClick={() => { setTab(id); window.scrollTo({ top: 0 }); }}><Icon size={20} /><span>{id === 'showtimes' ? 'Shows' : label}</span></button>)}
+        <Sheet open={mobileMenu} onOpenChange={setMobileMenu}>
+          <SheetTrigger asChild><button><MoreHorizontal size={20} /><span>More</span></button></SheetTrigger>
+          <SheetContent side="bottom" className={`mobile-staff-sheet ${staffTheme.className}`}>
+            <SheetHeader><SheetTitle>Cinema management</SheetTitle><SheetDescription>All tools for your shift</SheetDescription></SheetHeader>
+            <nav aria-label="All management tools">{tabs.map(({ id, label }) => <Button variant="outline" key={id} onClick={() => { setTab(id); setMobileMenu(false); window.scrollTo({ top: 0 }); }}>{label}</Button>)}</nav>
+            <Link href="/rasoi">Open reception & kitchen queue</Link>
+            <Button variant="outline" onClick={() => logout()}>Sign out</Button>
+          </SheetContent>
+        </Sheet>
+      </nav>
     </div>
   );
 }

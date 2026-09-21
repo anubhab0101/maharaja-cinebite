@@ -1,0 +1,262 @@
+/* Explicit mobile staff overrides are unlayered and scoped, including portals. */
+.staff-alert-panel {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid #b87950;
+  border-radius: 14px;
+  background: var(--staff-0d0d0c, #141414);
+  color: var(--staff-dedad2, #f1eee7);
+}
+.staff-alert-panel p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.staff-alert-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.staff-alert-actions button,
+.staff-new-order button {
+  min-height: 44px;
+  white-space: normal;
+}
+.staff-new-order {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px;
+  border: 2px solid #d46b38;
+  border-radius: 10px;
+}
+.staff-new-order a {
+  text-decoration: underline;
+}
+.pwa-install p {
+  max-width: 360px;
+}
+.mobile-staff-nav {
+  display: none;
+}
+.mobile-staff-sheet {
+  max-height: 85dvh;
+  overflow: auto;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  background: var(--staff-0d0d0c, #141414);
+  color: var(--staff-dedad2, #f1eee7);
+}
+.mobile-staff-sheet nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.mobile-staff-sheet button {
+  min-height: 44px;
+  white-space: normal;
+}
+.staff-alert-actions > button:first-child {
+  border: 1px solid #b87950;
+  background: #c65326;
+  color: #fff;
+}
+.mobile-staff-sheet [data-slot="sheet-title"],
+.mobile-staff-sheet [data-slot="sheet-description"] {
+  color: inherit;
+}
+@media screen and (max-width: 760px) {
+  body .admin-app {
+    display: block;
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+  body .admin-sidebar {
+    display: none;
+  }
+  body .admin-content {
+    padding: 20px 12px;
+    min-width: 0;
+  }
+  body .admin-topbar {
+    gap: 12px;
+    align-items: stretch;
+    flex-direction: column;
+    margin-bottom: 18px;
+  }
+  body .admin-top-actions {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  body .mobile-staff-nav {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid #8886;
+    background: var(--staff-0d0d0c, #141414);
+    color: var(--staff-dedad2, #f1eee7);
+  }
+  .mobile-staff-nav > button {
+    display: flex;
+    min-height: 54px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    background: transparent;
+    border-radius: 10px;
+  }
+  .mobile-staff-nav > button[aria-current] {
+    background: #c6532626;
+    color: var(--staff-e57e4c, #ffab78);
+  }
+  body .staff-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 12px;
+    height: auto;
+  }
+  body .staff-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  body .staff-header-center {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  body .kitchen-main,
+  body .history-main {
+    padding: 20px 12px;
+  }
+  body .queue-grid,
+  body .admin-grid-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body .queue-column {
+    min-height: 0;
+  }
+  body .queue-empty {
+    min-height: 100px;
+    padding: 20px;
+  }
+  body .kitchen-order-card :is(p, span, small, button),
+  body .order-items,
+  body .order-items strong {
+    font-size: 13px;
+  }
+  body .kitchen-order-card strong {
+    font-size: 14px;
+  }
+  body .queue-controls button,
+  body .history-link {
+    font-size: 13px;
+  }
+  body .staff-app button,
+  body .admin-app button,
+  body .history-page button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  body .staff-app input,
+  body .admin-app input,
+  body .admin-app select,
+  body .admin-app textarea,
+  body .staff-app select {
+    font-size: 16px;
+    min-height: 44px;
+    max-width: 100%;
+  }
+  body .admin-panel {
+    padding: 14px;
+    min-width: 0;
+  }
+  body .admin-panel > label,
+  body .admin-panel form > label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+    min-width: 0;
+  }
+  body .admin-panel label:has(input[type="checkbox"]) {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  body .admin-panel input[type="checkbox"] {
+    min-height: 24px;
+    width: 24px;
+    flex-shrink: 0;
+  }
+  body .admin-panel label > input:not([type="checkbox"]):not([type="radio"]),
+  body .admin-panel label > textarea,
+  body .admin-panel label > select {
+    width: 100%;
+    margin: 0;
+  }
+  body:has(.admin-app) .policy-footer {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+  body .admin-app .data-table td,
+  body .admin-app .data-table th {
+    font-size: 13px;
+    padding: 12px 8px;
+  }
+  body .admin-app .data-table td strong {
+    font-size: 14px;
+  }
+  body .admin-app .data-table td small {
+    font-size: 12px;
+  }
+  body .admin-app .data-table td:nth-child(4),
+  body .admin-app .data-table th:nth-child(4) {
+    display: table-cell;
+  }
+  body .data-table-wrap {
+    max-width: 100%;
+    overflow: auto;
+  }
+  body .staff-alert-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .staff-alert-actions button {
+    width: 100%;
+  }
+  body .staff-app .queue-controls,
+  body .table-filters {
+    flex-wrap: wrap;
+  }
+  body .staff-page-intro,
+  body .table-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  body .admin-app .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body .recent-row,
+  body .audit-row {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+  body .admin-app section,
+  body .staff-app section {
+    min-width: 0;
+  }
+}
+@media print {
+  .staff-alert-panel,
+  .mobile-staff-nav,
+  .pwa-install {
+    display: none !important;
+  }
+}

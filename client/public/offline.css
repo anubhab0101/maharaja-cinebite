@@ -1,0 +1,22 @@
+body {
+  margin: 0;
+  background: #f3f4f6;
+  color: #202020;
+  font:
+    18px/1.6 system-ui,
+    sans-serif;
+}
+main {
+  max-width: 30rem;
+  margin: 15vh auto;
+  padding: 24px;
+}
+a {
+  display: block;
+  padding: 14px;
+  margin-top: 12px;
+  border-radius: 12px;
+  background: #ad421b;
+  color: white;
+  text-align: center;
+}
