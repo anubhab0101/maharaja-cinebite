@@ -18,6 +18,7 @@ export type MenuItem = {
   name: string;
   category: string;
   pricePaise: number;
+  discountPercent?: number;
   description: string;
   available: boolean;
   options: string[];
@@ -28,6 +29,8 @@ export type OrderLine = {
   name: string;
   quantity: number;
   pricePaise: number;
+  originalPricePaise?: number;
+  discountPercent?: number;
   options: string[];
 };
 
@@ -133,5 +136,5 @@ export function isValidTransition(from: OrderStatus, to: OrderStatus) {
 }
 
 export function rupees(paise: number) {
-  return `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+  return `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }

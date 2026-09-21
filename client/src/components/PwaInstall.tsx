@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { registerPwa } from "@/lib/pwa";
 type InstallEvent = Event & {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: string }>;
@@ -13,6 +14,13 @@ export default function PwaInstall() {
   );
   const [help, setHelp] = useState(false);
   useEffect(() => {
+    // This component is mounted only inside the authenticated staff gate.
+    const manifest = document.createElement("link");
+    manifest.rel = "manifest";
+    manifest.href = "/api/staff-manifest";
+    manifest.crossOrigin = "use-credentials";
+    document.head.appendChild(manifest);
+    void registerPwa();
     const available = (event: Event) => {
       event.preventDefault();
       setPrompt(event as InstallEvent);
@@ -24,6 +32,7 @@ export default function PwaInstall() {
     window.addEventListener("beforeinstallprompt", available);
     window.addEventListener("appinstalled", done);
     return () => {
+      manifest.remove();
       window.removeEventListener("beforeinstallprompt", available);
       window.removeEventListener("appinstalled", done);
     };

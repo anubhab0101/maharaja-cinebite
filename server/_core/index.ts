@@ -16,6 +16,7 @@ import { hasStaffRole } from "@shared/cinebites";
 import { registerPaymentWebhook } from "../payment-webhook";
 import { database } from "../durable-store";
 import { sql } from "drizzle-orm";
+import { menuEvents } from "../menu-events";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -57,6 +58,18 @@ async function startServer() {
 
   // HTTP Security Headers (OWASP recommendations)
   app.use(securityHeaders);
+  let menuConnections = 0;
+  app.get("/api/menu-events", (req, res) => {
+    if (menuConnections >= 500) { res.sendStatus(503); return; }
+    menuConnections++;
+    res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
+    res.flushHeaders();
+    const changed = () => { res.write("data: menu-changed\n\n"); };
+    changed();
+    menuEvents.on("changed", changed);
+    const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 25000);
+    req.on("close", () => { menuConnections--; clearInterval(heartbeat); menuEvents.off("changed", changed); });
+  });
   registerPaymentWebhook(app);
 
   // Safe request body limits (protects against Memory Exhaustion / DoS)
@@ -127,6 +140,16 @@ async function startServer() {
     }
 
     next();
+  });
+
+  app.get('/api/staff-manifest', async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user || !hasStaffRole(user.role, ['OWNER_ADMIN', 'ADMIN', 'MANAGER', 'KITCHEN', 'CASHIER'])) return res.sendStatus(403);
+      const { staffManifest } = await import('../../shared/staff-manifest');
+      return res.type('application/manifest+json').json(staffManifest);
+    } catch { return res.sendStatus(401); }
   });
 
   app.get("/health", async (_req, res) => {

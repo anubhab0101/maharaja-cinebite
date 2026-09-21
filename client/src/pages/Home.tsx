@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
+import { menuPrice } from '@shared/menu-pricing';
+import { rupees, PLATFORM_FEE_PAISE } from '@shared/cinebites';
+import OfferNotifications from '@/components/OfferNotifications';
 import { readCart, saveCart } from "@/lib/cartStorage";
 import { checkoutAttempt, clearCheckoutAttempt } from "@/lib/checkoutAttempt";
 import {
@@ -44,6 +47,7 @@ type MenuItem = {
   name: string;
   description: string;
   price: number;
+  originalPrice?: number;
   category: Exclude<Category, "Popular">;
   tag?: string;
   tone: string;
@@ -55,12 +59,12 @@ type CartItem = MenuItem & { quantity: number };
 
 const defaultMenu: MenuItem[] = [
   // --- COMBOS (7 items) ---
-  { id: "festival-combo", name: "Festival Combo", description: "Large Popcorn + Cold Drink 300ml", price: 11700, category: "Combos", tag: "10% off", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
+  { id: "festival-combo", name: "Festival Combo", description: "Large Popcorn + Cold Drink 300ml", price: 11700, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
   { id: "maharaja-combo", name: "Maharaja Combo", description: "Regular Popcorn + Wafers + Paneer Puff + Cold Drink 300ml", price: 16000, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
   { id: "puff-combo", name: "Puff Combo", description: "Veg Puff + Cold Drink 300ml", price: 8000, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
-  { id: "regular-popcorn-combo", name: "Regular Popcorn Combo", description: "Regular Popcorn + Cold Drink 300ml", price: 8500, category: "Combos", tag: "5% off", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
+  { id: "regular-popcorn-combo", name: "Regular Popcorn Combo", description: "Regular Popcorn + Cold Drink 300ml", price: 8500, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
   { id: "nachos-combo", name: "Nachos Combo", description: "Nachos with Salsa + Cold Drink 300ml", price: 10000, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
-  { id: "sweet-corn-coke", name: "Sweet corn + Coke 300ml", description: "Sweet corn + Coke 300ml", price: 9000, category: "Combos", tag: "10% off", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
+  { id: "sweet-corn-coke", name: "Sweet corn + Coke 300ml", description: "Sweet corn + Coke 300ml", price: 9000, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
   { id: "momos-combo", name: "Momos Combo", description: "Panner Momos 8N + Cold Drink 300ml", price: 14000, category: "Combos", tone: "bg-[#181310] text-[#d48753] border border-[#261c14]", icon: "combo", available: true },
 
   // --- POPCORN (5 items) ---
@@ -89,10 +93,11 @@ const defaultMenu: MenuItem[] = [
 ];
 
 import { CHECKOUT_POLICIES, POLICY_VERSION, CUTOFF_NOTICE, checkoutConsentSchema } from "@shared/consent";
+import { CustomerOrderChat } from "@/components/OrderChat";
 const policies = CHECKOUT_POLICIES;
 
 function money(paise: number) {
-  return `₹${(paise / 100).toFixed(0)}`;
+  return rupees(paise);
 }
 
 function ItemIllustration({ item, small = false }: { item: MenuItem; small?: boolean }) {
@@ -182,7 +187,7 @@ function Header({
               title="Track your active cinema order"
             >
               <span className="live-pulse-dot" />
-              <span>Track #{activeOrder.orderNumber}</span>
+              <span>Track order</span>
             </button>
           ) : (
             <button
@@ -277,7 +282,7 @@ function MenuCard({
         </div>
         <p className="item-description">{item.description}</p>
         <div className="mt-3 flex items-center justify-between">
-          <span className="item-price">{money(item.price)}</span>
+          <span className="item-price">{item.originalPrice && item.originalPrice > item.price ? <><s className="text-sm opacity-60 mr-2">{money(item.originalPrice)}</s>{money(item.price)}</> : money(item.price)}</span>
           {!isAvailable ? (
             <button disabled className="add-button opacity-50 cursor-not-allowed">
               Sold out
@@ -597,6 +602,8 @@ function Tracking({
   );
 
   const orderData = trackQuery.data;
+  const [chatClock, setChatClock] = useState(Date.now);
+  useEffect(() => { const timer = window.setInterval(() => setChatClock(Date.now()), 10000); return () => window.clearInterval(timer); }, []);
   const currentStatus = orderData?.status || "NEW";
   const isPaid = orderData?.paymentStatus === "CONFIRMED";
 
@@ -611,14 +618,14 @@ function Tracking({
     { title: "Delivered", detail: "Enjoy the show!", done: isDelivered },
   ];
 
-  const estimatedMinutes = isDelivered ? 0 : isReady ? 2 : isPreparing ? 8 : 14;
 
   return (
     <main className="tracking-page">
+      {orderData && isPaid && ["NEW", "PREPARING", "READY"].includes(currentStatus) && chatClock - new Date(orderData.createdAt).getTime() >= 20 * 60 * 1000 && <CustomerOrderChat key={orderNumber} orderNumber={orderNumber} />}
       <div className="tracking-hero">
         <div className="success-orbit"><div className="success-core"><Check size={28} strokeWidth={2.5} /></div></div>
         <p className="eyebrow accent-eyebrow">{isPaid ? "Order confirmed" : "Payment confirmation pending"}</p>
-        <h1>{isPaid ? "Your snacks are on their way." : "Checking your payment."}</h1>
+        <h1>{currentStatus === "CANCELED" ? "Order canceled." : !isPaid ? "Checking your payment." : isDelivered ? "Order delivered." : isReady ? "Ready for delivery." : isPreparing ? "Your order is being prepared." : "Your order is in the queue."}</h1>
         <p>Order <strong>#{orderNumber}</strong> • <strong>{orderData?.screen || screen} • Seat {orderData?.seat || seat}</strong>.</p>
         {trackQuery.isError && <p role="alert">Cannot refresh status. Please retry or <a href="/support">view support information</a>.</p>}
       </div>
@@ -652,7 +659,7 @@ function Tracking({
             <div className="flex items-center justify-between text-xs text-white/70 mb-2">
               <span className="font-semibold uppercase tracking-wider text-[11px] text-[#dedad2]">Order Summary</span>
               <span className="font-mono text-amber-400 font-bold text-sm">
-                ₹{((orderData.totalPaise ?? 0) / 100).toFixed(0)}
+                ₹{((orderData.totalPaise ?? 0) / 100).toFixed(2)}
               </span>
             </div>
             <div className="space-y-1.5 text-xs">
@@ -662,7 +669,7 @@ function Tracking({
                     <strong className="text-amber-400/90">{line.quantity}×</strong> {line.name}
                   </span>
                   <span className="text-white/60 font-mono">
-                    ₹{((line.pricePaise * line.quantity) / 100).toFixed(0)}
+                    ₹{((line.pricePaise * line.quantity) / 100).toFixed(2)}
                   </span>
                 </div>
               ))}
@@ -688,7 +695,7 @@ function Tracking({
             <Info size={14} /> Feel free to return to the menu
           </p>
           <p className="text-white/70 text-[11px] leading-relaxed">
-            If you leave this screen or accidentally close the tab, your snacks are still being prepared! A floating banner stays active at the bottom of your screen, or you can tap <strong>&ldquo;Track #{orderNumber}&rdquo;</strong> in the top bar anytime.
+            Leaving this screen does not cancel your order. Use <strong>Track order</strong> for the latest status. Close the reminder with × to hide it; you can find your order again using its number and your phone number.
           </p>
         </div>
       </section>
@@ -752,7 +759,7 @@ function ActiveOrderBanner({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <strong className="text-xs font-semibold text-[#dedad2]">
-                Order #{order.orderNumber}
+                Order …{order.orderNumber.slice(-6)}
               </strong>
               <span className="text-[10px] text-white/60 font-mono">
                 {order.screen} • Seat {order.seat}
@@ -769,7 +776,7 @@ function ActiveOrderBanner({
             onClick={onOpenTracking}
             className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[#dedad2] text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer"
           >
-            <span>Live status</span>
+            <span>Track</span>
             <ArrowRight size={13} />
           </button>
           {(
@@ -887,7 +894,7 @@ function FindOrderModal({
                     </span>
                   </div>
                   <p className="text-xs text-[#85827b] mt-0.5">
-                    {item.screen} • Seat {item.seat} • ₹{(item.totalPaise / 100).toFixed(0)}
+                    {item.screen} • Seat {item.seat} • ₹{(item.totalPaise / 100).toFixed(2)}
                   </p>
                 </div>
                 <span className="text-xs text-amber-400 flex items-center gap-1 font-medium">
@@ -915,6 +922,7 @@ export default function Home() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const checkoutBusy = useRef(false);
   const [paymentBusy, setPaymentBusy] = useState(false);
+  const [menuNotice, setMenuNotice] = useState(false);
   const checkoutRequest = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const params = new URLSearchParams(window.location.search);
@@ -962,7 +970,13 @@ export default function Home() {
     : false);
 
   // Real backend menu catalog sync
-  const catalogQuery = trpc.catalog.menu.useQuery();
+  const catalogQuery = trpc.catalog.menu.useQuery(undefined, { refetchInterval: 5000, refetchOnWindowFocus: true, refetchOnReconnect: true });
+  const liveMenuUtils = trpc.useUtils();
+  useEffect(() => {
+    const stream = new EventSource("/api/menu-events");
+    stream.onmessage = () => { void liveMenuUtils.catalog.menu.invalidate(); };
+    return () => stream.close();
+  }, [liveMenuUtils]);
   const createOrderMutation = trpc.order.create.useMutation();
   const confirmPaymentMutation = trpc.order.confirmPayment.useMutation();
 
@@ -976,9 +990,10 @@ export default function Home() {
         id: item.id,
         name: item.name,
         description: item.description,
-        price: item.pricePaise,
+        price: menuPrice(item),
+        originalPrice: item.pricePaise,
         category: (item.category as any) || "Combos",
-        tag: match?.tag,
+        tag: item.discountPercent ? `${item.discountPercent}% off` : undefined,
         tone: match?.tone || "bg-[#181310] text-[#d48753] border border-[#261c14]",
         icon: match?.icon || "combo",
         available: item.available,
@@ -998,6 +1013,14 @@ export default function Home() {
   useEffect(() => {
     if (cartRestored.current) saveCart(cart);
   }, [cart]);
+  useEffect(() => {
+    if (!catalogQuery.data || !cartRestored.current) return;
+      const next = cart.flatMap(line => {
+        const fresh = menuList.find(item => item.id === line.id);
+        return fresh && fresh.available !== false ? [{ ...fresh, quantity: line.quantity }] : [];
+      });
+      if (JSON.stringify(next) !== JSON.stringify(cart)) { setCart(next); setMenuNotice(true); }
+  }, [catalogQuery.data, menuList, cart]);
 
   const visibleItems = useMemo(
     () => (active === "Popular" ? menuList.slice(0, 4) : menuList.filter((item) => item.category === active)),
@@ -1078,7 +1101,8 @@ export default function Home() {
         itemId: item.id,
         quantity: item.quantity,
       }));
-      const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken, seatToken });
+      const expectedTotalPaise = total + PLATFORM_FEE_PAISE;
+      const fingerprint = JSON.stringify({ details, orderItems, showtimeId, sessionToken, seatToken, expectedTotalPaise });
       if (checkoutRequest.current?.fingerprint !== fingerprint) {
         checkoutRequest.current = await checkoutAttempt(fingerprint);
       }
@@ -1092,6 +1116,7 @@ export default function Home() {
         customerName: details.name,
         phone: details.phone,
         items: orderItems,
+        expectedTotalPaise,
         showtimeId: showtimeId > 0 ? showtimeId : undefined,
         sessionToken: sessionToken || undefined,
         seatToken: seatToken || undefined,
@@ -1204,6 +1229,7 @@ export default function Home() {
         }}
         onOpenLookup={() => setLookupOpen(true)}
       />
+      {menuNotice && view !== "tracking" && <div role="status" className="mx-4 my-2 rounded-lg border border-amber-400 p-3 text-sm text-amber-200">Menu updated: unavailable items were removed or item details changed. Please review your cart and total.<button className="ml-3 underline" onClick={() => setMenuNotice(false)}>Dismiss</button></div>}
       {view === "menu" && (
         <>
           <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} orderingOpen={orderingOpen} />
@@ -1255,6 +1281,7 @@ export default function Home() {
               <ArrowRight className="hidden text-[#8f8d87] sm:block" size={18} />
             </section>
           </main>
+          <OfferNotifications />
           <footer className="site-footer">
             <BrandMark />
             <div className="footer-copy">

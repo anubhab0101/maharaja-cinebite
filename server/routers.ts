@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { orderChatRouter } from "./order-chat";
+import { offerPushRouter } from './offer-push';
 import { orderingControl, setOrderingControl, pauseSchema, pendingPayments, reconcilePayment, syncRefund, privacySchema, savePrivacyRequest, type PrivacyRequest } from "./pilot-operations";
 import { readEntities } from "./durable-store";
 import { customerExportInput, exportCustomerPage } from "./customer-export";
@@ -41,6 +43,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { randomBytes, createHash } from "node:crypto";
 
 export const appRouter = router({
+  chat: orderChatRouter,
+  offers: offerPushRouter,
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -98,6 +102,7 @@ export const appRouter = router({
             .min(1, "Cart cannot be empty")
             .max(30, "Exceeded maximum order items"),
           instructions: z.string().max(200).optional(),
+          expectedTotalPaise: z.number().int().positive().optional(),
           showtimeId: z.number().int().positive().optional(),
           sessionToken: z.string().min(20).max(96).optional(),
           seatToken: z.string().min(20).max(128).optional(),
@@ -165,6 +170,7 @@ export const appRouter = router({
           customerName: sanitizedName,
           phone: input.phone,
           items: input.items,
+          expectedTotalPaise: input.expectedTotalPaise,
           instructions: sanitizedInstructions,
           source: "ONLINE",
           paymentStatus: "PENDING",
@@ -370,7 +376,7 @@ export const appRouter = router({
         return { success: true };
       });
     }),
-    saveMenuItem: staffProcedure("menu:write").input(z.object({ id: z.string().regex(/^[a-z0-9-]{1,100}$/), name: z.string().trim().min(2).max(120), category: z.enum(["Combos", "Popcorn", "Snacks", "Beverages"]), description: z.string().trim().max(500), pricePaise: z.number().int().min(100).max(1000000), available: z.boolean(), options: z.array(z.string().trim().min(1).max(50)).max(10) })).mutation(async ({ input, ctx }) => {
+    saveMenuItem: staffProcedure("menu:write").input(z.object({ id: z.string().regex(/^[a-z0-9-]{1,100}$/), name: z.string().trim().min(2).max(120), category: z.enum(["Combos", "Popcorn", "Snacks", "Beverages"]), description: z.string().trim().max(500), pricePaise: z.number().int().min(100).max(1000000), discountPercent: z.number().int().min(0).max(90).default(0), available: z.boolean(), options: z.array(z.string().trim().min(1).max(50)).max(10) })).mutation(async ({ input, ctx }) => {
       await writeEntity("menu", input.id, input, ctx.user.email ?? "admin", "MENU_ITEM_SAVED");
       return input;
     }),

@@ -32,6 +32,7 @@ export async function cleanupOrder(orderNumber: string, approval?: RetentionAppr
     if (!decision.eligibleForReview) throw new Error(`Deletion blocked: ${decision.reasons.join("; ")}`);
     if (!approval.allRetentionExpired || !approval.noDisputeOrLegalHold || !approval.externalCopiesReviewed || !/^[A-Za-z0-9_-]{8,80}$/.test(approval.reference)) throw new Error("Documented retention release required");
     await tx.delete(orderItems).where(eq(orderItems.orderId, order.id));
+    await tx.delete(storeEntities).where(eq(storeEntities.key, `order-chat:${orderNumber}`));
     for (const row of relatedRequests) await tx.delete(storeEntities).where(eq(storeEntities.key, row.key));
     await tx.delete(consentRecords).where(eq(consentRecords.orderId, order.id));
     await tx.delete(payments).where(eq(payments.orderId, order.id));

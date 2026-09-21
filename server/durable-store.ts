@@ -4,6 +4,10 @@ import { orders, screens, seats, storeEntities, auditLogs, consentRecords } from
 import type { KitchenOrder } from "@shared/cinebites";
 import { createHash } from "node:crypto";
 import { checkoutConsentSchema, type CheckoutConsent } from "@shared/consent";
+import { menuEvents } from "./menu-events";
+import { TRPCError } from "@trpc/server";
+import { menuPrice } from "../shared/menu-pricing";
+import type { MenuItem } from "../shared/cinebites";
 
 export async function database() {
   const db = await getDb();
@@ -42,14 +46,23 @@ export async function writeEntity(kind: string, id: string, payload: unknown, ac
       .onDuplicateKeyUpdate({ set: { payload } });
     await tx.insert(auditLogs).values({ action, entityType: kind, entityId: id, detail: JSON.stringify({ actor }) });
   });
+  if (kind === "menu") menuEvents.emit("changed");
 }
 
-export async function persistOrder(order: KitchenOrder, input: { idempotencyKey?: string; checkoutHash?: string; showtimeId?: number; consent?: CheckoutConsent }) {
+export async function persistOrder(order: KitchenOrder, input: { idempotencyKey?: string; checkoutHash?: string; showtimeId?: number; consent?: CheckoutConsent; items?: { itemId: string; quantity: number; options?: string[] }[] }) {
   const consent = input.consent ? checkoutConsentSchema.parse(input.consent) : undefined;
   const db = await database();
   if (!db) return;
   await db.transaction(async tx => {
     const [screen] = await tx.select().from(screens).where(and(eq(screens.name, order.screen), eq(screens.active, 1))).limit(1);
+    for (const line of [...(input.items ?? [])].sort((a,b) => a.itemId.localeCompare(b.itemId))) {
+      const key = `menu:${createHash("sha256").update(line.itemId).digest("hex")}`;
+      const [row] = await tx.select().from(storeEntities).where(eq(storeEntities.key, key)).limit(1).for("update");
+      const current = row?.payload as MenuItem | undefined;
+      const index = input.items!.indexOf(line);
+      if (!current?.available) throw new TRPCError({ code: "BAD_REQUEST", message: "An item is sold out. Refresh your cart before paying." });
+      if (menuPrice(current) !== order.items[index]?.pricePaise || (line.options ?? []).some(option => !current.options.includes(option))) throw new TRPCError({ code: "BAD_REQUEST", message: "Menu changed. Review your cart before paying." });
+    }
     if (!screen) throw new Error("Screen is not configured or is inactive");
     const [seat] = await tx.select().from(seats).where(and(eq(seats.screenId, screen.id), eq(seats.label, order.seat))).limit(1);
     if (!seat) throw new Error("Seat is not configured for this screen");
@@ -78,6 +91,7 @@ export async function persistStatus(order: KitchenOrder, previous: string, actor
     if (!row || row.status !== previous || row.paymentStatus !== "CONFIRMED") throw new Error("Order changed; refresh the queue before retrying");
     if (order.status === "CANCELED") throw new Error("Cancellation requires refund review");
     await tx.update(orders).set({ status: order.status, snapshot: order, updatedAt: new Date() }).where(eq(orders.id, row.id));
+    if (order.status === "DELIVERED") await tx.delete(storeEntities).where(eq(storeEntities.key, `order-chat:${order.orderNumber}`));
     await tx.insert(auditLogs).values({ action: "ORDER_STATUS_CHANGED", entityType: "order", entityId: order.id, detail: JSON.stringify({ actor, from: previous, to: order.status }) });
   });
 }

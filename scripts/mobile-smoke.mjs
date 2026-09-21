@@ -33,6 +33,9 @@ const order = id => ({
   ],
 });
 let queue = [order("one")];
+let tracked = null;
+let chatMessages = [];
+const menuStreams = new Set();
 const menu = [
   {
     id: "popcorn",
@@ -41,11 +44,20 @@ const menu = [
     pricePaise: 10000,
     description: "Test only",
     available: true,
+    discountPercent: 15,
     options: [],
   },
 ];
 const data = name =>
   ({
+    "order.track": tracked,
+    "chat.inbox": [],
+    "offers.config": {
+      enabled: true,
+      publicKey: "A".repeat(87),
+      consentVersion: "offers-2026-09-21-v1",
+    },
+    "offers.summary": { enabled: false, subscribers: 0, campaigns: [] },
     "auth.me": {
       id: 1,
       name: "Test Owner",
@@ -80,6 +92,20 @@ const data = name =>
     },
   })[name] ?? [];
 const app = express();
+app.use(express.json());
+app.post("/api/trpc/chat.customer", (req, res) => {
+  const input = req.body[0]?.json ?? req.body.json;
+  if (!input || input.phone !== "9876543210") return res.status(400).end();
+  if (input.message && !chatMessages.some(m => m.id === input.message.id))
+    chatMessages.push({
+      ...input.message,
+      sender: "customer",
+      sentAt: new Date().toISOString(),
+    });
+  res.json([
+    { result: { data: { json: { open: true, messages: chatMessages } } } },
+  ]);
+});
 app.get("/api/trpc/:names", (req, res) =>
   res.json(
     req.params.names
@@ -87,14 +113,28 @@ app.get("/api/trpc/:names", (req, res) =>
       .map(name => ({ result: { data: { json: data(name) } } }))
   )
 );
-app.get("/api/events", (req, res) => {
+app.get(["/api/events", "/api/menu-events"], (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
   });
   res.write("event: ready\ndata: {}\n\n");
-  req.on("close", () => res.end());
+  if (req.path === "/api/menu-events") menuStreams.add(res);
+  req.on("close", () => {
+    menuStreams.delete(res);
+    res.end();
+  });
 });
+app.get("/api/staff-manifest", (_req, res) =>
+  res.json({
+    name: "CineBite Staff",
+    short_name: "CineBite",
+    start_url: "/rasoi",
+    scope: "/",
+    display: "standalone",
+    icons: [{ src: "/logo.png", sizes: "512x512", type: "image/png" }],
+  })
+);
 app.use("/api", (_req, res) =>
   res.status(405).json({ error: "No writes allowed in mobile smoke fixture" })
 );
@@ -121,6 +161,10 @@ try {
       window.__spoken.push(utterance.text);
     window.speechSynthesis.cancel = () => {};
     window.Notification.requestPermission = async () => "denied";
+    Object.defineProperty(window.Notification, "permission", {
+      configurable: true,
+      get: () => "default",
+    });
   });
   context.setDefaultTimeout(15000);
   const page = await context.newPage();
@@ -144,6 +188,12 @@ try {
   await page.goto(`${url}/maharaja`);
   console.log("Admin document loaded");
   await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  await page.locator('link[rel="manifest"]').waitFor({ state: "attached" });
+  assert.ok(
+    (await page.locator('link[rel="manifest"]').getAttribute("href")).includes(
+      "/api/staff-manifest"
+    )
+  );
   await page
     .getByRole("button", { name: "Enable sound & notifications", exact: true })
     .waitFor();
@@ -170,6 +220,7 @@ try {
   await fits("order table");
   for (const tab of [
     "Menu",
+    "Offer notifications",
     "Shift summary",
     "Staff",
     "Movies & showtimes",
@@ -189,6 +240,9 @@ try {
         .getByRole("button", { name: "Add menu item", exact: true })
         .click();
       await page.getByLabel("Item ID", { exact: true }).waitFor();
+      await page
+        .getByLabel("Discount (%) — 0 disables it", { exact: true })
+        .fill("15");
       await fits("menu edit form");
     }
   }
@@ -241,6 +295,109 @@ try {
     await page.goto(`${url}${route}`);
     await page.locator("h1").first().waitFor();
     await fits(`320px ${route}`);
+    if (route === "/") {
+      assert.equal(
+        await page.locator('link[rel="manifest"]').count(),
+        0,
+        "customer page has no installation manifest"
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Install CineBite app" })
+          .count(),
+        0,
+        "customer has no install button"
+      );
+      const offers = page.getByRole("region", {
+        name: "Optional cinema offers",
+      });
+      await offers.waitFor();
+      menu[0].available = false;
+      for (const stream of menuStreams) stream.write("data: menu-changed\n\n");
+      await page
+        .getByRole("button", { name: "Sold out", exact: true })
+        .first()
+        .waitFor({ timeout: 7000 });
+      menu[0].available = true;
+      for (const stream of menuStreams) stream.write("data: menu-changed\n\n");
+      assert.equal(
+        await offers.getByRole("checkbox").isChecked(),
+        false,
+        "marketing consent defaults off"
+      );
+      assert.equal(
+        await offers
+          .getByRole("button", { name: "Allow offer notifications" })
+          .isDisabled(),
+        true
+      );
+      await offers.getByRole("checkbox").check();
+      assert.equal(
+        await offers
+          .getByRole("button", { name: "Allow offer notifications" })
+          .isEnabled(),
+        true
+      );
+      await offers
+        .getByRole("button", { name: "Allow offer notifications" })
+        .click();
+      await offers
+        .getByText(
+          "Notifications are blocked in browser settings. Ordering is unaffected."
+        )
+        .waitFor();
+      await page.screenshot({
+        path: path.join(artifactDir, "customer-offers.png"),
+        fullPage: true,
+      });
+      await page.goto(`${url}/support`);
+      await page
+        .getByRole("heading", { name: "Contact & support", exact: true })
+        .waitFor();
+      await page
+        .getByRole("link", { name: "+91 9776942999", exact: true })
+        .waitFor();
+      await fits("mobile support policy");
+      await page.goto(`${url}/retention`);
+      await page
+        .getByRole("heading", {
+          name: "Retention & deletion — implementation notice",
+        })
+        .waitFor();
+      await fits("mobile retention policy");
+      tracked = {
+        ...order("chat"),
+        orderNumber: `CB-${"A".repeat(24)}`,
+        createdAt: new Date(Date.now() - 19 * 60000).toISOString(),
+      };
+      await page.goto(`${url}/?track=${tracked.orderNumber}&phone=0000`);
+      await page.getByText("Order Summary", { exact: true }).waitFor();
+      assert.equal(
+        await page.getByRole("region", { name: "Delayed order chat" }).count(),
+        0
+      );
+      tracked.createdAt = new Date(Date.now() - 21 * 60000).toISOString();
+      const chat = page.getByRole("region", { name: "Delayed order chat" });
+      await chat.waitFor({ timeout: 15000 });
+      await chat.getByLabel("Phone used for this order").fill("9876543210");
+      await chat.getByRole("button", { name: "Open chat" }).click();
+      await chat
+        .getByLabel("Message", { exact: true })
+        .fill("Please update my order");
+      await chat.getByRole("button", { name: "Send message" }).click();
+      await chat
+        .getByText("Please update my order", { exact: false })
+        .first()
+        .waitFor();
+      await fits("customer delayed chat");
+      await page.screenshot({
+        path: path.join(artifactDir, "customer-chat.png"),
+        fullPage: true,
+      });
+      tracked.status = "DELIVERED";
+      await chat.waitFor({ state: "detached", timeout: 10000 });
+      tracked = null;
+    }
   }
   await page.goto(`${url}/maharaja`);
   await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();

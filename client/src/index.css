@@ -398,6 +398,15 @@ button.cine-animated-button:disabled { transform: none; }
 @media (max-width: 680px) { .staff-management-grid, .shift-stat-grid { grid-template-columns: 1fr; }.shift-summary-heading { align-items: flex-start; flex-direction: column; gap: 10px; }.shift-callout { align-items: flex-start; flex-direction: column; }.staff-directory-row { align-items: flex-start; flex-wrap: wrap; }.staff-status { margin-left: 42px; }.role-select { margin-left: auto; } }
 
 /* Persistent Active Order Banner & Lookup Modal */
+.order-chat { margin: 12px 0; padding: 14px; border: 1px solid #8886; border-radius: 12px; color: inherit; background: var(--staff-121211, #191919); overflow-wrap: anywhere; text-align: left; }
+.order-chat h2, .order-chat summary { font-weight: 650; font-size: 15px; cursor: pointer; }
+.order-chat p { font-size: 13px; line-height: 1.5; margin: 8px 0; }
+.order-chat label { display: grid; gap: 6px; font-size: 13px; }
+.order-chat input, .order-chat textarea { width: 100%; padding: 10px; border: 1px solid #888; border-radius: 8px; color: inherit; background: transparent; }
+.order-chat button { min-height: 44px; padding: 8px 12px; margin: 6px 0; border: 1px solid #888; border-radius: 8px; }
+.order-chat button:disabled { opacity: .5; }
+.order-chat-messages { max-height: 240px; overflow-y: auto; white-space: pre-wrap; }
+.order-chat-messages p { padding: 10px; background: #8882; border-radius: 8px; }
 .active-order-banner-wrapper {
   position: fixed;
   bottom: 20px;
@@ -410,12 +419,12 @@ button.cine-animated-button:disabled { transform: none; }
 }
 .active-order-banner {
   pointer-events: auto;
-  width: min(560px, 100%);
+  width: min(420px, 100%);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 12px 18px;
+  padding: 8px 10px;
   border-radius: 14px;
   border: 1px solid rgba(212, 107, 56, 0.4);
   background: rgba(14, 11, 9, 0.95);

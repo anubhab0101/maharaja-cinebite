@@ -4,6 +4,9 @@ export function registerPwa() {
     return Promise.resolve(null);
   registration ??= navigator.serviceWorker
     .register("/sw.js", { updateViaCache: "none" })
-    .catch(() => null);
+    .catch(() => {
+      registration = undefined;
+      return null;
+    });
   return registration;
 }

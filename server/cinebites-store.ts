@@ -2,6 +2,7 @@ import { randomUUID, randomBytes, createHash } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { getPaymentProvider } from "./payment-provider";
 import { database, readOrders, readOrder, readEntities, writeEntity, persistOrder, persistStatus } from "./durable-store";
+import { menuPrice } from '@shared/menu-pricing';
 import {
   DashboardStats,
   KitchenOrder,
@@ -228,6 +229,7 @@ export async function getStats(): Promise<DashboardStats> {
 }
 
 export type CreateOrderInput = {
+  expectedTotalPaise?: number;
   screen: string;
   seat: string;
   customerName: string;
@@ -264,7 +266,7 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
       throw new Error(`Menu item not found: ${line.itemId}`);
     }
     if (!menuItem.available) {
-      throw new Error(`Menu item is currently unavailable: ${menuItem.name}`);
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Menu item is currently unavailable: ${menuItem.name}. Please review your cart.` });
     }
     if (!Number.isInteger(line.quantity) || line.quantity <= 0 || line.quantity > 20) {
       throw new Error(`Invalid quantity for ${menuItem.name}: ${line.quantity}`);
@@ -272,13 +274,16 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
     if ((line.options ?? []).some(option => !menuItem.options.includes(option))) {
       throw new Error(`Invalid option for ${menuItem.name}`);
     }
-    const linePrice = menuItem.pricePaise * line.quantity;
+    const unitPrice = menuPrice(menuItem);
+    const linePrice = unitPrice * line.quantity;
     totalPaise += linePrice;
     orderLines.push({
       id: randomUUID(),
       name: menuItem.name,
       quantity: line.quantity,
-      pricePaise: menuItem.pricePaise,
+      pricePaise: unitPrice,
+      originalPricePaise: menuItem.pricePaise,
+      discountPercent: menuItem.discountPercent ?? 0,
       options: line.options ?? [],
     });
   }
@@ -292,6 +297,9 @@ export async function createOrder(input: CreateOrderInput, actor = "customer"): 
   // Add ₹10 (1000 paise) platform fee per order
   const platformFeePaise = PLATFORM_FEE_PAISE;
   totalPaise += platformFeePaise;
+  if (input.expectedTotalPaise !== undefined && input.expectedTotalPaise !== totalPaise) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Menu price or discount changed. Reload the menu and review the total before paying.' });
+  }
 
   const newOrder: KitchenOrder = {
     id: `order-${randomUUID()}`,

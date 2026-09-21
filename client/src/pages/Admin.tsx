@@ -42,16 +42,19 @@ import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotContro
 import MenuCatalog from "./MenuCatalog";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 import StaffAlerts from "@/components/StaffAlerts";
+import { StaffOrderChat } from "@/components/OrderChat";
+import OfferCampaigns from './OfferCampaigns';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 
-type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "showtimes" | "sessions" | "seatQrs" | "audit";
+type Tab = "overview" | "shift" | "orders" | "menu" | "refunds" | "staff" | "showtimes" | "sessions" | "seatQrs" | "audit" | "offers";
 
 const tabs: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "shift", label: "Shift summary", icon: Clock3 },
   { id: "orders", label: "Orders", icon: ClipboardList },
   { id: "menu", label: "Menu", icon: Menu },
+  { id: "offers", label: "Offer notifications", icon: Sparkles },
   { id: "refunds", label: "Refunds", icon: WalletCards },
   { id: "staff", label: "Staff", icon: Users },
   { id: "sessions", label: "Session Links", icon: Calendar },
@@ -196,7 +199,9 @@ export default function Admin() {
         </header>
 
         <StaffAlerts />
+        <StaffOrderChat />
         {tab === "overview" && <PilotOverview />}
+        {tab === "offers" && <OfferCampaigns />}
         {tab === "shift" && <ShiftSummary />}
         {tab === "orders" && (
           <OrdersTable

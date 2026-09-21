@@ -18,7 +18,7 @@ beforeEach(() => vi.resetAllMocks());
 describe("reviewed retention cleanup", () => {
   it("cannot override a registered legal hold with a release", async () => { const { remove } = setup("2024-01-01", true); await expect(cleanupOrder("CB-1", approval, new Date("2026-01-01"))).rejects.toThrow("hold"); expect(remove).not.toHaveBeenCalled(); });
   it("preview never writes", async () => { const { remove, receipt } = setup(); expect((await cleanupOrder("CB-1", undefined, new Date("2026-01-01"))).mode).toBe("PREVIEW"); expect(remove).not.toHaveBeenCalled(); expect(receipt).not.toHaveBeenCalled(); });
-  it("deletes only after review and minimum age", async () => { const { remove, receipt } = setup(); expect((await cleanupOrder("CB-1", approval, new Date("2026-01-01"))).mode).toBe("DELETED"); expect(remove).toHaveBeenCalledTimes(5); expect(JSON.stringify(receipt.mock.calls)).not.toContain("CB-1"); });
+  it("deletes only after review and minimum age, including any orphaned chat", async () => { const { remove, receipt } = setup(); expect((await cleanupOrder("CB-1", approval, new Date("2026-01-01"))).mode).toBe("DELETED"); expect(remove).toHaveBeenCalledTimes(6); expect(JSON.stringify(receipt.mock.calls)).not.toContain("CB-1"); });
   it("cannot override minimum age with a release", async () => { const { remove } = setup("2026-01-01"); await expect(cleanupOrder("CB-1", approval, new Date("2026-02-01"))).rejects.toThrow("Deletion blocked"); expect(remove).not.toHaveBeenCalled(); });
   it("rejects an invalid release reference before writes", async () => { const { remove } = setup(); await expect(cleanupOrder("CB-1", { ...approval, reference: "bad" }, new Date("2026-01-01"))).rejects.toThrow("release"); expect(remove).not.toHaveBeenCalled(); });
 });

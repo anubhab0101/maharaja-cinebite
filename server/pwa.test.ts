@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { staffManifest } from "../shared/staff-manifest";
 import { describe, expect, it, vi } from "vitest";
 
 const source = readFileSync(
@@ -11,20 +12,67 @@ function worker() {
   const addAll = vi.fn().mockResolvedValue(undefined);
   const match = vi.fn().mockResolvedValue("offline document");
   const fetch = vi.fn().mockRejectedValue(new Error("offline"));
+  const showNotification = vi.fn().mockResolvedValue(undefined);
   vm.runInNewContext(source, {
     URL,
     fetch,
     caches: { open: async () => ({ addAll }), match },
     self: {
+      registration: { showNotification },
       location: { origin: "https://cinebite.store" },
       addEventListener: (name: string, cb: any) => {
         handlers[name] = cb;
       },
     },
   });
-  return { handlers, addAll, match, fetch };
+  return { handlers, addAll, match, fetch, showNotification };
 }
 describe("privacy-safe PWA", () => {
+  it("renders only bounded offer text and ignores supplied redirect URLs", async () => {
+    const w = worker();
+    let task: Promise<unknown> | undefined;
+    w.handlers.push({
+      data: {
+        json: () => ({
+          type: "offer",
+          title: "a".repeat(100),
+          body: "b".repeat(300),
+          url: "https://evil.test",
+          campaignId: "test",
+        }),
+      },
+      waitUntil: (p: Promise<unknown>) => {
+        task = p;
+      },
+    });
+    await task;
+    expect(w.showNotification).toHaveBeenCalledWith(
+      "a".repeat(60),
+      expect.objectContaining({
+        body: "b".repeat(180),
+        data: { kind: "offer" },
+      })
+    );
+    expect(JSON.stringify(w.showNotification.mock.calls)).not.toContain(
+      "evil.test"
+    );
+  });
+  it("ignores malformed/unrelated push payloads", () => {
+    const w = worker();
+    w.handlers.push({
+      data: {
+        json: () => {
+          throw new Error("bad payload");
+        },
+      },
+    });
+    w.handlers.push({
+      data: {
+        json: () => ({ type: "arbitrary", title: "Test", body: "Test" }),
+      },
+    });
+    expect(w.showNotification).not.toHaveBeenCalled();
+  });
   it("precaches only public offline assets", async () => {
     const w = worker();
     let pending: Promise<unknown> | undefined;
@@ -68,12 +116,12 @@ describe("privacy-safe PWA", () => {
     expect(w.match).toHaveBeenCalledWith("/offline.html");
   });
   it("has an installable standalone entry without privileged credentials", () => {
-    const manifest = JSON.parse(
-      readFileSync(
-        new URL("../client/public/manifest.webmanifest", import.meta.url),
-        "utf8"
-      )
+    const manifest = staffManifest;
+    const html = readFileSync(
+      new URL("../client/index.html", import.meta.url),
+      "utf8"
     );
+    expect(html).not.toContain('rel="manifest"');
     expect(manifest.display).toBe("standalone");
     expect(manifest.start_url).toBe("/rasoi");
     expect(manifest.icons.some((icon: any) => icon.sizes === "512x512")).toBe(

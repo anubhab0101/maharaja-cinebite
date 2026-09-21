@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { menuPrice } from '@shared/menu-pricing';
 
-type Item = { id: string; name: string; category: string; description: string; pricePaise: number; available: boolean; options: string[] };
+type Item = { id: string; name: string; category: string; description: string; pricePaise: number; discountPercent?: number; available: boolean; options: string[] };
 const blank: Item = { id: "", name: "", category: "Snacks", description: "", pricePaise: 100, available: false, options: [] };
 const categories = ["Combos", "Popcorn", "Snacks", "Beverages"] as const;
 
@@ -38,6 +39,8 @@ export default function MenuCatalog() {
       <label>Item ID <input className="block w-full border rounded p-2" required disabled={editing || busy} pattern="[a-z0-9-]{1,100}" value={draft.id} onChange={e => setDraft({ ...draft, id: e.target.value })} /></label>
       <label>Name <input className="block w-full border rounded p-2" required minLength={2} maxLength={120} disabled={busy} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></label>
       <label>Price (₹) <input className="block w-full border rounded p-2" required type="number" min="1" max="10000" step="0.01" disabled={busy} value={price} onChange={e => setPrice(e.target.value)} /></label>
+      <label>Discount (%) — 0 disables it<input className="block w-full border rounded p-2" type="number" required min="0" max="90" step="1" disabled={busy} value={draft.discountPercent ?? 0} onChange={e => setDraft({ ...draft, discountPercent: Number(e.target.value) })} /></label>
+      <p className="text-sm">Discount applies to new orders only, not the platform fee. Existing order prices remain unchanged.</p>
       <label>Category <select className="block w-full border rounded p-2" value={draft.category} disabled={busy} onChange={e => setDraft({ ...draft, category: e.target.value })}>{categories.map(c => <option key={c}>{c}</option>)}</select></label>
       <label>Description <textarea className="block w-full border rounded p-2" maxLength={500} disabled={busy} value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} /></label>
       <label className="flex gap-2"><input type="checkbox" disabled={busy} checked={draft.available} onChange={e => setDraft({ ...draft, available: e.target.checked })} />Available for ordering</label>
@@ -46,7 +49,7 @@ export default function MenuCatalog() {
     </form>}
     <label className="block">Search menu <input className="block w-full border rounded p-2" value={search} onChange={e => setSearch(e.target.value)} /></label>
     {items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(search.toLowerCase())).map(item => <article className="flex flex-wrap items-center justify-between gap-4 border-b border-white/15 py-3" key={item.id}>
-      <div><h3>{item.name}</h3><p className="text-sm text-white/80">{item.category} · ₹{(item.pricePaise / 100).toFixed(2)} · {item.available ? "Available" : "Unavailable"}</p></div>
+      <div><h3>{item.name}</h3><p className="text-sm text-white/80">{item.category} · {Boolean(item.discountPercent) && <><s>₹{(item.pricePaise / 100).toFixed(2)}</s> → </>}₹{(menuPrice(item) / 100).toFixed(2)} {Boolean(item.discountPercent) && `(${item.discountPercent}% off)`} · {item.available ? "Available" : "Unavailable"}</p></div>
       <div className="flex items-center gap-4"><button className="primary-small" disabled={busy} onClick={() => edit(item)}>Edit {item.name}</button><label className="flex gap-2"><input type="checkbox" aria-label={`Availability of ${item.name}`} checked={item.available} disabled={busy || Boolean(draft)} onChange={e => toggle.mutate({ id: item.id, available: e.target.checked })} />In stock</label></div>
     </article>)}
     {items.length > 0 && !items.some(item => `${item.name} ${item.category}`.toLowerCase().includes(search.toLowerCase())) && <p>No matching items. Clear the search to see all items.</p>}

@@ -6,6 +6,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Link } from "wouter";
 import { hasStaffRole, KitchenOrder, ORDER_STATUSES, OrderStatus, rupees } from "@shared/cinebites";
 import StaffAlerts from "@/components/StaffAlerts";
+import { StaffOrderChat } from "@/components/OrderChat";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
 const columns: { status: OrderStatus; label: string; tone: string }[] = [
@@ -202,6 +203,7 @@ export default function Kitchen() {
         </div>
 
         <StaffAlerts />
+        <StaffOrderChat />
 
         <div className="queue-controls">
           <span className="queue-controls-label">Show</span>
