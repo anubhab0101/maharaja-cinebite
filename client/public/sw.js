@@ -1,6 +1,7 @@
 // Deliberately cache only public offline assets, never API responses, staff
 // pages, customer details, QR tokens, checkout responses or third-party scripts.
-const CACHE = "cinebite-offline-v2";
+const CACHE = "cinebite-offline-v3";
+self.addEventListener("message", event => { if (event.data?.type === "ACTIVATE_UPDATE") self.skipWaiting(); });
 self.addEventListener("install", event => {
   event.waitUntil(
     caches
@@ -47,6 +48,13 @@ self.addEventListener("push", event => {
   try {
     payload = event.data?.json();
   } catch {
+    return;
+  }
+  if (payload?.type === "staff-order") {
+    event.waitUntil(self.registration.showNotification(payload.test ? "CineBite: Test staff notification" : "CineBite: New order arrives", {
+      body: "Open the staff queue to view current orders.", icon: "/logo.png",
+      tag: `staff-${String(payload.notificationId).slice(0, 64)}`, data: { kind: "staff" },
+    }));
     return;
   }
   if (

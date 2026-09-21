@@ -73,6 +73,13 @@ describe("privacy-safe PWA", () => {
     });
     expect(w.showNotification).not.toHaveBeenCalled();
   });
+  it("renders staff push with fixed privacy-safe content", async () => {
+    const w = worker(); let task: Promise<unknown> | undefined;
+    w.handlers.push({ data: { json: () => ({ type: "staff-order", notificationId: "abc", title: "private name", body: "private phone" }) }, waitUntil: (p: Promise<unknown>) => { task = p; } });
+    await task;
+    expect(w.showNotification).toHaveBeenCalledWith("CineBite: New order arrives", expect.objectContaining({ data: { kind: "staff" }, tag: "staff-abc" }));
+    expect(JSON.stringify(w.showNotification.mock.calls)).not.toContain("private");
+  });
   it("precaches only public offline assets", async () => {
     const w = worker();
     let pending: Promise<unknown> | undefined;

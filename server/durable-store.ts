@@ -69,6 +69,7 @@ export async function persistOrder(order: KitchenOrder, input: { idempotencyKey?
     const [inserted] = await tx.insert(orders).values({
       orderNumber: order.orderNumber, publicId: order.id, snapshot: order,
       status: "NEW", source: order.source, paymentStatus: order.paymentStatus,
+      paymentConfirmedAt: order.paymentStatus === "CONFIRMED" ? new Date() : null,
       screenId: screen.id, seatId: seat.id, customerName: order.customerName,
       customerPhoneLast4: order.phoneLast4, totalPaise: order.totalPaise,
       instructions: order.instructions, idempotencyKey: input.idempotencyKey ?? order.id,

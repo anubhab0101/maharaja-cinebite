@@ -8,6 +8,7 @@ import { newConfirmedOrders, speakNewOrder } from "@/lib/order-alerts";
 import { registerPwa } from "@/lib/pwa";
 import { Button } from "@/components/ui/button";
 import PwaInstall from "./PwaInstall";
+import StaffPushSettings from "./StaffPushSettings";
 
 export default function StaffAlerts() {
   const { user } = useAuth();
@@ -75,15 +76,21 @@ export default function StaffAlerts() {
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
       if ("Notification" in window && Notification.permission === "granted") {
         void registerPwa()
-          .then(reg =>
-            reg?.active
-              ? reg.showNotification("CineBite: New order arrives", {
+          .then(async reg => {
+            if (!reg?.active) return;
+            for (const order of arrived) {
+              const orderNumber = queue.data?.find(candidate => candidate.id === order.id)?.orderNumber;
+              if (!orderNumber) continue;
+              const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(orderNumber));
+              const id = Array.from(new Uint8Array(digest), n => n.toString(16).padStart(2, "0")).join("");
+              await reg.showNotification("CineBite: New order arrives", {
                   body: "Open the staff queue to view the order.",
                   icon: "/logo.png",
-                  tag: "cinebite-new-order",
-                })
-              : undefined
-          )
+                  tag: `staff-${id}`,
+                  data: { kind: "staff" },
+                });
+            }
+          })
           .catch(() => setPermission("unavailable"));
       }
     }
@@ -168,9 +175,10 @@ export default function StaffAlerts() {
       </div>
       <p>
         Keep this app open during service. Sound follows phone volume and
-        silent/DND settings. Notification permission: {permission}. Closed-app
-        push is not configured.
+        silent/DND settings. Notification permission: {permission}. Background
+        notifications need separate enablement below.
       </p>
+      <StaffPushSettings />
       {notice && (
         <div className="staff-new-order" role="alert">
           <strong>{notice}</strong>

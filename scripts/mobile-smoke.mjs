@@ -198,6 +198,9 @@ try {
     .getByRole("button", { name: "Enable sound & notifications", exact: true })
     .waitFor();
   await fits("admin overview");
+  await page.getByRole("button", { name: "Install CineBite app", exact: true }).click();
+  await page.getByText(/On iPhone: Safari/).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Enable background alerts", exact: true }).isDisabled(), true, "background push is gated when server keys are not configured");
   await page.screenshot({
     path: path.join(artifactDir, "admin-mobile.png"),
     fullPage: true,

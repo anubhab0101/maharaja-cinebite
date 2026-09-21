@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { orderChatRouter } from "./order-chat";
+import { staffPushRouter } from "./staff-push";
 import { offerPushRouter } from './offer-push';
 import { orderingControl, setOrderingControl, pauseSchema, pendingPayments, reconcilePayment, syncRefund, privacySchema, savePrivacyRequest, type PrivacyRequest } from "./pilot-operations";
 import { readEntities } from "./durable-store";
@@ -44,6 +45,7 @@ import { randomBytes, createHash } from "node:crypto";
 
 export const appRouter = router({
   chat: orderChatRouter,
+  staffPush: staffPushRouter,
   offers: offerPushRouter,
   system: systemRouter,
   auth: router({

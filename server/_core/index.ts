@@ -17,6 +17,7 @@ import { registerPaymentWebhook } from "../payment-webhook";
 import { database } from "../durable-store";
 import { sql } from "drizzle-orm";
 import { menuEvents } from "../menu-events";
+import { startStaffPushWorker } from "../staff-push";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -236,6 +237,8 @@ async function startServer() {
   const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
   if (port !== preferredPort) console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   server.listen(port, () => console.log(`Server running on http://localhost:${port}/`));
+  const stopStaffPush = startStaffPushWorker();
+  server.on("close", stopStaffPush);
 }
 
 startServer().catch(error => { console.error("Server startup failed", error); process.exitCode = 1; });

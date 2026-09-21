@@ -13,14 +13,41 @@ export default function PwaInstall() {
       Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
   );
   const [help, setHelp] = useState(false);
+  const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
+  const [problem, setProblem] = useState("");
   useEffect(() => {
     // This component is mounted only inside the authenticated staff gate.
     const manifest = document.createElement("link");
     manifest.rel = "manifest";
     manifest.href = "/api/staff-manifest";
     manifest.crossOrigin = "use-credentials";
-    document.head.appendChild(manifest);
-    void registerPwa();
+    let cancelled = false;
+    let registration: ServiceWorkerRegistration | null = null;
+    const checkUpdate = () => {
+      if (!cancelled) setWaiting(registration?.waiting ?? null);
+    };
+    void registerPwa()
+      .then(async reg => {
+        registration = reg;
+        if (!reg) {
+          if (!cancelled)
+            setProblem(
+              "App installation needs HTTPS and service worker support."
+            );
+          return;
+        }
+        reg.addEventListener("updatefound", () =>
+          reg.installing?.addEventListener("statechange", checkUpdate)
+        );
+        await reg.update();
+        checkUpdate();
+      })
+      .catch(() => {
+        if (!cancelled)
+          setProblem(
+            "Could not check the app update. Check connection and retry."
+          );
+      });
     const available = (event: Event) => {
       event.preventDefault();
       setPrompt(event as InstallEvent);
@@ -31,19 +58,34 @@ export default function PwaInstall() {
     };
     window.addEventListener("beforeinstallprompt", available);
     window.addEventListener("appinstalled", done);
+    document.head.appendChild(manifest);
+    void fetch("/api/staff-manifest", {
+      credentials: "same-origin",
+      cache: "no-store",
+    })
+      .then(r => {
+        if (!r.ok && !cancelled)
+          setProblem(
+            "Staff install access could not be verified. Sign in again, then reload."
+          );
+      })
+      .catch(() => {
+        if (!cancelled)
+          setProblem("Unable to load install information. Check connection.");
+      });
     return () => {
       manifest.remove();
+      cancelled = true;
       window.removeEventListener("beforeinstallprompt", available);
       window.removeEventListener("appinstalled", done);
     };
   }, []);
-  if (installed) return null;
   return (
     <div className="pwa-install print:hidden">
       <Button
         variant="outline"
         onClick={async () => {
-          if (!prompt) {
+          if (!prompt || installed) {
             setHelp(!help);
             return;
           }
@@ -57,8 +99,24 @@ export default function PwaInstall() {
           }
         }}
       >
-        Install CineBite app
+        {installed ? "CineBite installed — help" : "Install CineBite app"}
       </Button>
+      {waiting && (
+        <Button
+          variant="outline"
+          onClick={() => {
+            navigator.serviceWorker.addEventListener(
+              "controllerchange",
+              () => window.location.reload(),
+              { once: true }
+            );
+            waiting.postMessage({ type: "ACTIVATE_UPDATE" });
+          }}
+        >
+          Update app
+        </Button>
+      )}
+      {problem && <p role="status">{problem}</p>}
       {help && (
         <p>
           On iPhone: Safari → Share → Add to Home Screen. On Android: browser
