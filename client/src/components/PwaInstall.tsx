@@ -121,7 +121,9 @@ export default function PwaInstall() {
         <p>
           On iPhone: Safari → Share → Add to Home Screen. On Android: browser
           menu → Install app / Add to Home screen. Installation needs HTTPS and
-          browser support.
+          browser support. If that option is missing, open this staff page directly
+          in an updated Chrome browser (not an in-app or private browser), sign in,
+          and try again. This website cannot force a browser to offer installation.
         </p>
       )}
     </div>

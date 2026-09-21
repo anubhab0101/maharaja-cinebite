@@ -41,7 +41,8 @@ import SeatQrGenerator from "@/pages/SeatQrGenerator";
 import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 import MenuCatalog from "./MenuCatalog";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
-import StaffAlerts from "@/components/StaffAlerts";
+import PwaInstall from "@/components/PwaInstall";
+import AdminPushSilencer from "@/components/AdminPushSilencer";
 import { StaffOrderChat } from "@/components/OrderChat";
 import OfferCampaigns from './OfferCampaigns';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
@@ -68,8 +69,8 @@ export default function Admin() {
   const { user, logout, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
   const [tab, setTab] = useState<Tab>("overview");
   const [mobileMenu, setMobileMenu] = useState(false);
-  const stats = trpc.admin.stats.useQuery();
-  const orders = trpc.admin.orders.useQuery();
+  const stats = trpc.admin.stats.useQuery(undefined, { refetchInterval: 15000 });
+  const orders = trpc.admin.orders.useQuery(undefined, { refetchInterval: 15000 });
   const menu = trpc.admin.menu.useQuery();
   const audit = trpc.admin.audit.useQuery();
 
@@ -198,8 +199,8 @@ export default function Admin() {
           </div>
         </header>
 
-        <StaffAlerts />
         <StaffOrderChat />
+        <AdminPushSilencer />
         {tab === "overview" && <PilotOverview />}
         {tab === "offers" && <OfferCampaigns />}
         {tab === "shift" && <ShiftSummary />}
@@ -233,6 +234,7 @@ export default function Admin() {
             <SheetHeader><SheetTitle>Cinema management</SheetTitle><SheetDescription>All tools for your shift</SheetDescription></SheetHeader>
             <nav aria-label="All management tools">{tabs.map(({ id, label }) => <Button variant="outline" key={id} onClick={() => { setTab(id); setMobileMenu(false); window.scrollTo({ top: 0 }); }}>{label}</Button>)}</nav>
             <Link href="/rasoi">Open reception & kitchen queue</Link>
+            <PwaInstall />
             <Button variant="outline" onClick={() => logout()}>Sign out</Button>
           </SheetContent>
         </Sheet>

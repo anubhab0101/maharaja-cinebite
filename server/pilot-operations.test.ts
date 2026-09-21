@@ -1,12 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { capturedPaymentIds, verifiedRefund, validatePrivacyTransition, orderingControl, pauseSchema } from "./pilot-operations";
-import { readEntities } from "./durable-store";
+import { readEntities, writeEntity } from "./durable-store";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import { POLICY_VERSION } from "../shared/consent";
-vi.mock("./durable-store", async original => ({ ...await original<typeof import("./durable-store")>(), readEntities: vi.fn() }));
+vi.mock("./durable-store", async original => ({ ...await original<typeof import("./durable-store")>(), readEntities: vi.fn(), writeEntity: vi.fn() }));
 beforeEach(() => { vi.mocked(readEntities).mockReset(); });
 describe("pilot operational safeguards", () => {
+  for (const role of [null, "READ_ONLY", "CASHIER"]) {
+    it(`denies kitchen pause to ${role}`, async () => {
+      const caller = appRouter.createCaller({ user: role ? { id: 22, role } : null, req: { headers: {} }, res: {} } as unknown as TrpcContext);
+      await expect(caller.kitchen.setOrderingControl({ paused: true, reason: "Emergency pause" })).rejects.toMatchObject({ code: role ? "FORBIDDEN" : "UNAUTHORIZED" });
+    });
+  }
+  for (const role of ["KITCHEN", "MANAGER", "ADMIN", "OWNER_ADMIN"]) {
+    it(`allows audited kitchen pause for ${role}`, async () => {
+      const caller = appRouter.createCaller({ user: { id: 23, role }, req: { headers: {} }, res: {} } as unknown as TrpcContext);
+      await expect(caller.kitchen.setOrderingControl({ paused: true, reason: "Emergency pause" })).resolves.toEqual({ paused: true });
+      expect(writeEntity).toHaveBeenCalledWith("ordering", "global", expect.objectContaining({ paused: true }), "23", "ORDERING_CONTROL_CHANGED");
+    });
+  }
   it("blocks direct customer checkout while paused", async () => {
     vi.mocked(readEntities).mockResolvedValue([{ paused: true }]);
     const caller = appRouter.createCaller({ user: null, req: { headers: {} }, res: {} } as unknown as TrpcContext);

@@ -6,6 +6,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Link } from "wouter";
 import { hasStaffRole, KitchenOrder, ORDER_STATUSES, OrderStatus, rupees } from "@shared/cinebites";
 import StaffAlerts from "@/components/StaffAlerts";
+import KitchenOrderingControl from "@/components/KitchenOrderingControl";
+import PwaInstall from "@/components/PwaInstall";
 import { StaffOrderChat } from "@/components/OrderChat";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
@@ -203,6 +205,8 @@ export default function Kitchen() {
         </div>
 
         <StaffAlerts />
+        <details className="order-chat"><summary>More</summary><PwaInstall /></details>
+        <KitchenOrderingControl />
         <StaffOrderChat />
 
         <div className="queue-controls">
@@ -363,6 +367,7 @@ function KitchenStockModal({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close menu stock"
             className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition"
           >
             <X size={16} />
@@ -392,14 +397,15 @@ function KitchenStockModal({
               })}
             </div>
 
-            <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs ml-auto">
+            <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs w-full sm:w-auto sm:ml-auto">
               <Search size={13} className="text-white/40" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search snack..."
-                className="bg-transparent border-none outline-none text-white text-xs w-28 sm:w-36 placeholder:text-white/30"
+                aria-label="Search menu items"
+                className="bg-transparent border-none outline-none text-white text-xs min-w-0 w-full sm:w-36 placeholder:text-white/30"
               />
               {search && (
                 <button onClick={() => setSearch("")} className="text-white/40 hover:text-white">
@@ -438,13 +444,13 @@ function KitchenStockModal({
               return (
                 <div
                   key={item.id}
-                  className={`p-3 rounded-xl flex items-center justify-between gap-3 transition-all ${
+                  className={`p-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
                     isTopSeller
                       ? "border-2 border-amber-400/90 shadow-[0_0_15px_rgba(251,191,36,0.2)] bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent"
                       : "border border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <div
                       className={`shrink-0 h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm ${
                         isTopSeller ? "bg-amber-400 text-black shadow" : "bg-white/10 text-white"
@@ -453,8 +459,8 @@ function KitchenStockModal({
                       {item.name.slice(0, 1)}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <strong className="text-sm font-semibold truncate text-[#dedad2]">
+                      <div className="flex flex-col items-start gap-2">
+                        <strong className="text-sm font-semibold whitespace-normal break-words text-[#dedad2]">
                           {item.name}
                         </strong>
                         {isTopSeller && (
@@ -463,7 +469,7 @@ function KitchenStockModal({
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-[#85827b] truncate mt-0.5">
+                      <div className="text-xs text-[#85827b] whitespace-normal mt-0.5">
                         <span>{item.category}</span> •{" "}
                         <strong className="text-white/80">{rupees(item.pricePaise)}</strong>
                       </div>
@@ -471,7 +477,7 @@ function KitchenStockModal({
                   </div>
 
                   {/* Toggle button */}
-                  <div className="flex items-center gap-2.5 shrink-0">
+                  <div className="flex items-center justify-between gap-2.5 shrink-0 flex-wrap">
                     <span
                       className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
                         item.available
@@ -482,6 +488,7 @@ function KitchenStockModal({
                       {item.available ? "Available" : "Sold out"}
                     </span>
                     <button
+                      aria-label={`${item.available ? "Mark sold out" : "Mark available"}: ${item.name}`}
                       onClick={() => onToggle(item.id, !item.available)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                         item.available

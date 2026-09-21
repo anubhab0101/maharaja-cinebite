@@ -7,7 +7,6 @@ import { playKitchenChime, unlockKitchenAudio } from "@/lib/kitchenAudio";
 import { newConfirmedOrders, speakNewOrder } from "@/lib/order-alerts";
 import { registerPwa } from "@/lib/pwa";
 import { Button } from "@/components/ui/button";
-import PwaInstall from "./PwaInstall";
 import StaffPushSettings from "./StaffPushSettings";
 
 export default function StaffAlerts() {
@@ -108,10 +107,11 @@ export default function StaffAlerts() {
   );
   if (!allowed) return null;
   return (
-    <section
+    <details
       className="staff-alert-panel print:hidden"
       aria-label="Reception order alerts"
     >
+      <summary className="cursor-pointer font-semibold">Kitchen notification settings {enabled ? "• Sound on" : "• Sound off"}{notice ? " • New order received" : ""}</summary>
       <div>
         <strong>Reception & kitchen alerts</strong>
         <p role="status">
@@ -171,7 +171,6 @@ export default function StaffAlerts() {
         >
           Test sound & voice
         </Button>
-        <PwaInstall />
       </div>
       <p>
         Keep this app open during service. Sound follows phone volume and
@@ -188,6 +187,6 @@ export default function StaffAlerts() {
           </Button>
         </div>
       )}
-    </section>
+    </details>
   );
 }

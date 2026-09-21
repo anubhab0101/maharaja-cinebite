@@ -25,7 +25,7 @@ const order = id => ({
   items: [
     {
       id: "popcorn",
-      name: "Test Popcorn",
+      name: "Festival Combo with Large Cheese Popcorn and Two Cold Drinks",
       quantity: 1,
       pricePaise: 10000,
       options: [],
@@ -34,12 +34,13 @@ const order = id => ({
 });
 let queue = [order("one")];
 let tracked = null;
+let paused = false;
 let chatMessages = [];
 const menuStreams = new Set();
 const menu = [
   {
     id: "popcorn",
-    name: "Test Popcorn",
+    name: "Festival Combo with Large Cheese Popcorn and Two Cold Drinks",
     category: "Popcorn",
     pricePaise: 10000,
     description: "Test only",
@@ -51,6 +52,8 @@ const menu = [
 const data = name =>
   ({
     "order.track": tracked,
+    "catalog.orderingControl": { paused },
+    "kitchen.orderingControl": { paused },
     "chat.inbox": [],
     "offers.config": {
       enabled: true,
@@ -93,6 +96,11 @@ const data = name =>
   })[name] ?? [];
 const app = express();
 app.use(express.json());
+app.post("/api/trpc/kitchen.setOrderingControl", (req, res) => {
+  const input = req.body[0]?.json ?? req.body.json;
+  paused = input.paused;
+  res.json([{ result: { data: { json: { paused } } } }]);
+});
 app.post("/api/trpc/chat.customer", (req, res) => {
   const input = req.body[0]?.json ?? req.body.json;
   if (!input || input.phone !== "9876543210") return res.status(400).end();
@@ -188,24 +196,21 @@ try {
   await page.goto(`${url}/maharaja`);
   console.log("Admin document loaded");
   await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Enable sound & notifications", exact: true }).count(), 0, "admin must not mount kitchen alerts");
+  await page.getByRole("button", { name: "More", exact: true }).click();
   await page.locator('link[rel="manifest"]').waitFor({ state: "attached" });
   assert.ok(
     (await page.locator('link[rel="manifest"]').getAttribute("href")).includes(
       "/api/staff-manifest"
     )
   );
-  await page
-    .getByRole("button", { name: "Enable sound & notifications", exact: true })
-    .waitFor();
   await fits("admin overview");
   await page.getByRole("button", { name: "Install CineBite app", exact: true }).click();
   await page.getByText(/On iPhone: Safari/).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Enable background alerts", exact: true }).isDisabled(), true, "background push is gated when server keys are not configured");
   await page.screenshot({
     path: path.join(artifactDir, "admin-mobile.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("heading", { name: "Cinema management" }).waitFor();
   await page
     .getByRole("navigation", { name: "All management tools" })
@@ -262,6 +267,26 @@ try {
     .waitFor();
   await page.getByText("TEST-one", { exact: true }).first().waitFor();
   await fits("kitchen queue");
+  assert.equal(await page.getByRole("button", { name: "Enable sound & notifications", exact: true }).isVisible(), false, "kitchen alerts default collapsed");
+  await page.getByText(/Kitchen notification settings/).click();
+  await page.getByRole("button", { name: "Pause new orders", exact: true }).waitFor();
+  page.on("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Pause new orders", exact: true }).click();
+  await page.getByRole("button", { name: "Resume orders", exact: true }).waitFor();
+  assert.equal(paused, true);
+  await page.getByText("TEST-one", { exact: true }).first().waitFor();
+  await page.getByRole("button", { name: "Resume orders", exact: true }).click();
+  await page.getByRole("button", { name: "Pause new orders", exact: true }).waitFor();
+  assert.equal(paused, false);
+  await page.getByRole("button", { name: "Menu Stock" }).click();
+  const stockName = page.locator("strong").filter({ hasText: menu[0].name });
+  await stockName.waitFor();
+  await page.getByText("Highest Sell", { exact: true }).waitFor();
+  assert.equal(await stockName.evaluate(el => getComputedStyle(el).whiteSpace), "normal");
+  await page.getByRole("button", { name: `Mark sold out: ${menu[0].name}`, exact: true }).waitFor();
+  await fits("kitchen stock names");
+  await page.screenshot({ path: path.join(artifactDir, "kitchen-stock-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page
     .getByRole("button", { name: "Enable sound & notifications", exact: true })
     .click();

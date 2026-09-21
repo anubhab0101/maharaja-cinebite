@@ -31,7 +31,7 @@ function fakeTransaction(selectResults: unknown[][]) {
 
 describe("durable order storage", () => {
   it("persists exact screen and seat IDs, item snapshots and consent in one transaction", async () => {
-    const writes = fakeTransaction([[{ id: 7 }], [{ id: 42 }]]);
+    const writes = fakeTransaction([[{ id: 7 }], [{ payload: { paused: false } }], [{ id: 42 }]]);
     await persistOrder(order, { idempotencyKey: "request-1", consent: { policyVersion: POLICY_VERSION, terms: true, privacy: true, refund: true, cutoff: true }, showtimeId: 12 });
     expect(writes.find(w => w.table === orders)?.value).toMatchObject({ screenId: 7, seatId: 42, snapshot: order, publicId: order.id, idempotencyKey: "request-1", showtimeId: 12 });
     expect(writes.find(w => w.table === consentRecords)?.value).toMatchObject({ orderId: 99, terms: 1, privacy: 1, refund: 1, retention: 0, support: 0, policyVersion: POLICY_VERSION, createdAt: expect.any(Date) });
@@ -45,9 +45,9 @@ describe("durable order storage", () => {
     expect(writes).toEqual([]);
   });
   it("rejects a seat outside the selected screen", async () => {
-    const writes = fakeTransaction([[{ id: 7 }], []]);
+    const writes = fakeTransaction([[{ id: 7 }], [{ payload: { paused: false } }], []]);
     await expect(persistOrder(order, {})).rejects.toThrow("Seat is not configured");
-    expect(writes).toEqual([]);
+    expect(writes.every(w => w.value.kind === "ordering")).toBe(true);
   });
   it("reads persisted orders independently of the process-memory store", async () => {
     vi.mocked(getDb).mockResolvedValue({ select: () => ({ from: () => ({ orderBy: async () => [{ snapshot: order, status: "READY", paymentStatus: "CONFIRMED", updatedAt: new Date("2026-09-12T10:15:00Z") }] }) }) } as any);

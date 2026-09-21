@@ -57,6 +57,7 @@ export const appRouter = router({
     }),
   }),
   catalog: router({
+    orderingControl: publicProcedure.query(orderingControl),
     seatSession: publicProcedure.input(z.object({ token: z.string().min(20).max(128) })).query(({ input }) => resolveSeatSession(input.token)),
     menu: publicProcedure.query(async () => {
       const current = await listMenu();
@@ -307,6 +308,8 @@ export const appRouter = router({
       }),
   }),
   kitchen: router({
+    orderingControl: staffProcedure("kitchen:read").query(orderingControl),
+    setOrderingControl: staffProcedure("kitchen:read").input(pauseSchema).mutation(({ input, ctx }) => setOrderingControl(input, ctx.user.email ?? String(ctx.user.id))),
     menu: staffProcedure("kitchen:read").query(() => listMenu()),
     setAvailability: staffProcedure("kitchen:read").input(z.object({ id: z.string().min(1).max(100), available: z.boolean() })).mutation(({ input, ctx }) => toggleMenuAvailability(input.id, input.available, ctx.user.name ?? "kitchen")),
     queue: staffProcedure("kitchen:read").query(async () =>

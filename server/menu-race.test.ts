@@ -25,7 +25,7 @@ function fixture(results: unknown[][]) {
     insert: () => ({
       values: (value: any) => {
         inserted(value);
-        return { $returningId: async () => [{ id: 1 }] };
+        return { $returningId: async () => [{ id: 1 }], onDuplicateKeyUpdate: async () => {} };
       },
     }),
     update: () => ({ set: () => ({ where: async () => {} }) }),
@@ -47,17 +47,23 @@ const order: any = {
   paymentStatus: "CONFIRMED",
 };
 describe("checkout and delivery transaction guards", () => {
+  it("rejects a pause committed after the route's initial check", async () => {
+    const f = fixture([[{ id: 1 }], [{ payload: { paused: true } }]]);
+    await expect(persistOrder(order, { items: [] })).rejects.toThrow("paused");
+    expect(f.inserted.mock.calls.every(([value]) => value.kind === "ordering")).toBe(true);
+  });
   it("rejects an item disabled after the initial menu read", async () => {
-    const f = fixture([[{ id: 1 }], [{ payload: { available: false } }]]);
+    const f = fixture([[{ id: 1 }], [{ payload: { paused: false } }], [{ payload: { available: false } }]]);
     await expect(
       persistOrder(order, { items: [{ itemId: "food", quantity: 1 }] })
     ).rejects.toThrow("sold out");
     expect(f.locked).toHaveBeenCalled();
-    expect(f.inserted).not.toHaveBeenCalled();
+    expect(f.inserted.mock.calls.every(([value]) => value.kind === "ordering")).toBe(true);
   });
   it("rejects a price changed before persistence", async () => {
     fixture([
       [{ id: 1 }],
+      [{ payload: { paused: false } }],
       [{ payload: { available: true, pricePaise: 11000, options: [] } }],
     ]);
     await expect(

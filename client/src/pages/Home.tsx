@@ -965,7 +965,8 @@ export default function Home() {
   const session = trpc.catalog.session.useQuery({ token: sessionToken || "invalid-session-token" }, { enabled: sessionToken.length > 0 });
   const showtimeId = seatToken ? seatSession.data?.show?.id ?? 0 : session.data?.show.id ?? (Number(params.get("showtimeId")) || 0);
   const orderingWindow = trpc.catalog.orderingWindow.useQuery({ showtimeId }, { enabled: showtimeId > 0, refetchInterval: 15000 });
-  const orderingOpen = (!seatToken || Boolean(seatSession.data?.show)) && (!sessionToken || Boolean(session.data)) && (showtimeId > 0
+  const globalOrdering = trpc.catalog.orderingControl.useQuery(undefined, { refetchInterval: 5000, refetchOnWindowFocus: true, refetchOnReconnect: true });
+  const orderingOpen = globalOrdering.data?.paused === false && (!seatToken || Boolean(seatSession.data?.show)) && (!sessionToken || Boolean(session.data)) && (showtimeId > 0
     ? orderingWindow.data?.orderingEnabled === true
     : false);
 
@@ -974,7 +975,7 @@ export default function Home() {
   const liveMenuUtils = trpc.useUtils();
   useEffect(() => {
     const stream = new EventSource("/api/menu-events");
-    stream.onmessage = () => { void liveMenuUtils.catalog.menu.invalidate(); };
+    stream.onmessage = () => { void liveMenuUtils.catalog.menu.invalidate(); void liveMenuUtils.catalog.orderingControl.invalidate(); };
     return () => stream.close();
   }, [liveMenuUtils]);
   const createOrderMutation = trpc.order.create.useMutation();
@@ -1230,6 +1231,7 @@ export default function Home() {
         onOpenLookup={() => setLookupOpen(true)}
       />
       {menuNotice && view !== "tracking" && <div role="status" className="mx-4 my-2 rounded-lg border border-amber-400 p-3 text-sm text-amber-200">Menu updated: unavailable items were removed or item details changed. Please review your cart and total.<button className="ml-3 underline" onClick={() => setMenuNotice(false)}>Dismiss</button></div>}
+      {globalOrdering.data?.paused && view !== "tracking" && <p role="status" className="m-4 rounded-lg border border-amber-400 p-3 text-amber-200">Kitchen has paused new orders. Existing orders are still being processed.</p>}
       {view === "menu" && (
         <>
           <CinemaContext screen={detectedScreen} seat={paramSeat} showTitle={detectedMovie} orderingOpen={orderingOpen} />
