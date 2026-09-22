@@ -24,7 +24,7 @@ jobs:
     env:
       SESSION_MINUTES: ${{ inputs.minutes }}
     steps:
-      - name: Check application and database every four minutes
+      - name: Check application and database every minute
         shell: bash
         run: |
           set -euo pipefail
@@ -38,6 +38,7 @@ jobs:
           echo "Monitoring started at $(date -u +%FT%TZ) for $SESSION_MINUTES minutes."
           echo 'This is temporary monitoring, not a Render uptime guarantee.'
           while true; do
+            cycle_started=$SECONDS
             healthy=false
             for attempt in 1 2 3; do
               if curl --silent --show-error --fail \
@@ -61,8 +62,9 @@ jobs:
             fi
             remaining=$((deadline - SECONDS))
             if [ "$remaining" -le 0 ]; then break; fi
-            sleep_seconds=240
-            if [ "$remaining" -lt 240 ]; then sleep_seconds=$remaining; fi
+            sleep_seconds=$((60 - (SECONDS - cycle_started)))
+            if [ "$sleep_seconds" -lt 0 ]; then sleep_seconds=0; fi
+            if [ "$remaining" -lt "$sleep_seconds" ]; then sleep_seconds=$remaining; fi
             sleep "$sleep_seconds"
           done
           echo "Completed $checks health cycles; $failed_cycles failed cycles." >> "$GITHUB_STEP_SUMMARY"

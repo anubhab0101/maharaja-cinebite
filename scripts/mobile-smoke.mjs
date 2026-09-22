@@ -207,6 +207,16 @@ try {
   await fits("admin overview");
   await page.getByRole("button", { name: "Install CineBite app", exact: true }).click();
   await page.getByText(/On iPhone: Safari/).waitFor();
+  await page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Add CineBite to Home Screen" }) }).getByRole("button", { name: "Close", exact: true }).click();
+  await page.evaluate(() => {
+    window.__installCalls = 0;
+    const event = new Event("beforeinstallprompt", { cancelable: true });
+    event.prompt = async () => { window.__installCalls++; };
+    event.userChoice = Promise.resolve({ outcome: "dismissed" });
+    window.dispatchEvent(event);
+  });
+  await page.getByRole("button", { name: "Install CineBite app", exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__installCalls), 1, "install button invokes available native prompt exactly once");
   await page.screenshot({
     path: path.join(artifactDir, "admin-mobile.png"),
     fullPage: true,

@@ -16,25 +16,32 @@ jobs:
     # Forks must not keep pinging the production service.
     if: github.repository == 'anubhab0101/maharaja-cinebite'
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     steps:
       - name: Wake service and verify application health
         shell: bash
         run: |
           set -euo pipefail
-          # A Render loading page can return HTTP 200; validate the JSON too.
-          for attempt in 1 2 3; do
+          # GitHub schedules cannot run every minute. Each bounded job probes
+          # at 0/60/120/180/240 seconds; scheduler delays can still leave gaps.
+          failed=0
+          started=$SECONDS
+          for cycle in 0 1 2 3 4; do
+            due=$((started + cycle * 60))
+            if [ "$SECONDS" -lt "$due" ]; then sleep "$((due - SECONDS))"; fi
+            # Render's loading page can return 200; require application JSON.
             if curl --silent --show-error --fail \
               --proto '=https' --connect-timeout 10 --max-time 45 \
               --header 'Cache-Control: no-cache' \
-              "https://cinebite.store/health?probe=${GITHUB_RUN_ID}-${attempt}" \
+              "https://cinebite.store/health?probe=${GITHUB_RUN_ID}-${cycle}" \
               --output "$RUNNER_TEMP/cinebite-health.json" \
               && jq -e '.ok == true and .service == "cinebites"' \
                 "$RUNNER_TEMP/cinebite-health.json" >/dev/null; then
               echo 'CineBite application and database are healthy.'
-              exit 0
+            else
+              failed=$((failed + 1))
+              echo "::warning::Health probe $cycle failed; retrying next minute."
             fi
-            if [ "$attempt" -lt 3 ]; then sleep 15; fi
           done
-          echo '::error::CineBite health check failed after three attempts.'
-          exit 1
+          echo "Five one-minute probes completed; $failed failed." >> "$GITHUB_STEP_SUMMARY"
+          test "$failed" -eq 0

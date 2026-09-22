@@ -41,7 +41,7 @@ import SeatQrGenerator from "@/pages/SeatQrGenerator";
 import { PilotOverview, PilotRefunds, PilotSeatSetup } from "@/pages/PilotControls";
 import MenuCatalog from "./MenuCatalog";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
-import PwaInstall from "@/components/PwaInstall";
+import PwaInstall, { StaffInstallProvider } from "@/components/PwaInstall";
 import AdminPushSilencer from "@/components/AdminPushSilencer";
 import { StaffOrderChat } from "@/components/OrderChat";
 import OfferCampaigns from './OfferCampaigns';
@@ -131,7 +131,7 @@ export default function Admin() {
   }
 
   return (
-    <div className={`admin-app ${staffTheme.className}`}>
+    <StaffInstallProvider><div className={`admin-app ${staffTheme.className}`}>
       <aside className="admin-sidebar">
         <div className="admin-logo">
           <img
@@ -239,7 +239,7 @@ export default function Admin() {
           </SheetContent>
         </Sheet>
       </nav>
-    </div>
+    </div></StaffInstallProvider>
   );
 }
 

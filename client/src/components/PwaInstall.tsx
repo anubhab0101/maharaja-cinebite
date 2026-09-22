@@ -1,18 +1,23 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { registerPwa } from "@/lib/pwa";
 type InstallEvent = Event & {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: string }>;
 };
-export default function PwaInstall() {
+const InstallContext = createContext<{
+  prompt: InstallEvent | null; clearPrompt(): void; installed: boolean;
+  waiting: ServiceWorker | null; problem: string;
+} | null>(null);
+
+export function StaffInstallProvider({ children }: { children: ReactNode }) {
   const [prompt, setPrompt] = useState<InstallEvent | null>(null);
   const [installed, setInstalled] = useState(
     () =>
       window.matchMedia("(display-mode: standalone)").matches ||
       Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
   );
-  const [help, setHelp] = useState(false);
   const [waiting, setWaiting] = useState<ServiceWorker | null>(null);
   const [problem, setProblem] = useState("");
   useEffect(() => {
@@ -80,6 +85,14 @@ export default function PwaInstall() {
       window.removeEventListener("appinstalled", done);
     };
   }, []);
+  return <InstallContext.Provider value={{ prompt, clearPrompt: () => setPrompt(null), installed, waiting, problem }}>{children}</InstallContext.Provider>;
+}
+
+export default function PwaInstall() {
+  const install = useContext(InstallContext);
+  const [help, setHelp] = useState(false);
+  if (!install) return null;
+  const { prompt, clearPrompt, installed, waiting, problem } = install;
   return (
     <div className="pwa-install print:hidden">
       <Button
@@ -95,7 +108,7 @@ export default function PwaInstall() {
           } catch {
             setHelp(true);
           } finally {
-            setPrompt(null);
+            clearPrompt();
           }
         }}
       >
@@ -117,15 +130,24 @@ export default function PwaInstall() {
         </Button>
       )}
       {problem && <p role="status">{problem}</p>}
-      {help && (
-        <p>
+      <Dialog open={help} onOpenChange={setHelp}>
+        <DialogContent>
+        <DialogHeader><DialogTitle>Add CineBite to Home Screen</DialogTitle>
+        <DialogDescription>
           On iPhone: Safari → Share → Add to Home Screen. On Android: browser
           menu → Install app / Add to Home screen. Installation needs HTTPS and
           browser support. If that option is missing, open this staff page directly
           in an updated Chrome browser (not an in-app or private browser), sign in,
           and try again. This website cannot force a browser to offer installation.
-        </p>
-      )}
+        </DialogDescription></DialogHeader>
+        <p>{installed ? "This app is already installed." : "Your browser has not made its native install popup available yet."}</p>
+        {prompt && !installed && <Button onClick={async () => {
+          try { await prompt.prompt(); await prompt.userChoice; setHelp(false); }
+          catch { setHelp(true); }
+          finally { clearPrompt(); }
+        }}>Install now</Button>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

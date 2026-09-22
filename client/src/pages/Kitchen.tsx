@@ -7,7 +7,7 @@ import { Link } from "wouter";
 import { hasStaffRole, KitchenOrder, ORDER_STATUSES, OrderStatus, rupees } from "@shared/cinebites";
 import StaffAlerts from "@/components/StaffAlerts";
 import KitchenOrderingControl from "@/components/KitchenOrderingControl";
-import PwaInstall from "@/components/PwaInstall";
+import PwaInstall, { StaffInstallProvider } from "@/components/PwaInstall";
 import { StaffOrderChat } from "@/components/OrderChat";
 import StaffThemeToggle, { useStaffTheme } from "@/components/StaffThemeToggle";
 
@@ -156,7 +156,7 @@ export default function Kitchen() {
     );
   }
   return (
-    <div className={`staff-app ${staffTheme.className}`}>
+    <StaffInstallProvider><div className={`staff-app ${staffTheme.className}`}>
       <header className="staff-header">
         <div className="staff-brand">
           <img
@@ -294,7 +294,7 @@ export default function Kitchen() {
           }}
         />
       )}
-    </div>
+    </div></StaffInstallProvider>
   );
 }
 

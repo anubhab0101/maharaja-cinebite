@@ -18,6 +18,7 @@ import { database } from "../durable-store";
 import { sql } from "drizzle-orm";
 import { menuEvents } from "../menu-events";
 import { startStaffPushWorker } from "../staff-push";
+import { startSelfPing } from "./self-ping";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -236,7 +237,11 @@ async function startServer() {
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = process.env.NODE_ENV === "production" ? preferredPort : await findAvailablePort(preferredPort);
   if (port !== preferredPort) console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  server.listen(port, () => console.log(`Server running on http://localhost:${port}/`));
+  server.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}/`);
+    const stopSelfPing = startSelfPing();
+    server.once("close", stopSelfPing);
+  });
   const stopStaffPush = startStaffPushWorker();
   server.on("close", stopStaffPush);
 }
