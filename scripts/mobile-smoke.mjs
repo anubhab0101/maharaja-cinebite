@@ -133,16 +133,6 @@ app.get(["/api/events", "/api/menu-events"], (req, res) => {
     res.end();
   });
 });
-app.get("/api/staff-manifest", (_req, res) =>
-  res.json({
-    name: "CineBite Staff",
-    short_name: "CineBite",
-    start_url: "/rasoi",
-    scope: "/",
-    display: "standalone",
-    icons: [{ src: "/logo.png", sizes: "512x512", type: "image/png" }],
-  })
-);
 app.use("/api", (_req, res) =>
   res.status(405).json({ error: "No writes allowed in mobile smoke fixture" })
 );
@@ -201,7 +191,7 @@ try {
   await page.locator('link[rel="manifest"]').waitFor({ state: "attached" });
   assert.ok(
     (await page.locator('link[rel="manifest"]').getAttribute("href")).includes(
-      "/api/staff-manifest"
+      "/staff.webmanifest"
     )
   );
   await fits("admin overview");

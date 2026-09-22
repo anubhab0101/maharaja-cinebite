@@ -144,16 +144,6 @@ async function startServer() {
     next();
   });
 
-  app.get('/api/staff-manifest', async (req, res) => {
-    res.setHeader('Cache-Control', 'private, no-store');
-    try {
-      const user = await sdk.authenticateRequest(req);
-      if (!user || !hasStaffRole(user.role, ['OWNER_ADMIN', 'ADMIN', 'MANAGER', 'KITCHEN', 'CASHIER'])) return res.sendStatus(403);
-      const { staffManifest } = await import('../../shared/staff-manifest');
-      return res.type('application/manifest+json').json(staffManifest);
-    } catch { return res.sendStatus(401); }
-  });
-
   app.get("/health", async (_req, res) => {
     try {
       const db = await database();

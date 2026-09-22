@@ -134,5 +134,7 @@ describe("privacy-safe PWA", () => {
     expect(manifest.icons.some((icon: any) => icon.sizes === "512x512")).toBe(
       true
     );
+    expect(manifest.icons).toContainEqual(expect.objectContaining({ src: "/staff-icon-192.png", sizes: "192x192", type: "image/png" }));
+    expect(readFileSync(new URL("../client/public/staff.webmanifest", import.meta.url), "utf8")).toContain('"/staff-icon-192.png"');
   });
 });

@@ -24,8 +24,7 @@ export function StaffInstallProvider({ children }: { children: ReactNode }) {
     // This component is mounted only inside the authenticated staff gate.
     const manifest = document.createElement("link");
     manifest.rel = "manifest";
-    manifest.href = "/api/staff-manifest";
-    manifest.crossOrigin = "use-credentials";
+    manifest.href = "/staff.webmanifest";
     let cancelled = false;
     let registration: ServiceWorkerRegistration | null = null;
     const checkUpdate = () => {
@@ -64,14 +63,11 @@ export function StaffInstallProvider({ children }: { children: ReactNode }) {
     window.addEventListener("beforeinstallprompt", available);
     window.addEventListener("appinstalled", done);
     document.head.appendChild(manifest);
-    void fetch("/api/staff-manifest", {
-      credentials: "same-origin",
-      cache: "no-store",
-    })
+    void fetch("/staff.webmanifest", { cache: "no-store" })
       .then(r => {
         if (!r.ok && !cancelled)
           setProblem(
-            "Staff install access could not be verified. Sign in again, then reload."
+            "Install metadata could not load. Reload the staff page when connected."
           );
       })
       .catch(() => {
@@ -131,7 +127,7 @@ export default function PwaInstall() {
       )}
       {problem && <p role="status">{problem}</p>}
       <Dialog open={help} onOpenChange={setHelp}>
-        <DialogContent>
+        <DialogContent className="cine-install-dialog">
         <DialogHeader><DialogTitle>Add CineBite to Home Screen</DialogTitle>
         <DialogDescription>
           On iPhone: Safari → Share → Add to Home Screen. On Android: browser

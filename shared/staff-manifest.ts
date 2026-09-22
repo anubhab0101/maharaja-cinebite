@@ -8,7 +8,7 @@ export const staffManifest = {
   background_color: "#f3f4f6",
   theme_color: "#c65326",
   icons: [
-    { src: "/staff-icon.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
+    { src: "/staff-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
     { src: "/logo.png", sizes: "512x512", type: "image/png", purpose: "any" },
   ],
   shortcuts: [
